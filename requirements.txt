@@ -1,0 +1,9 @@
+numpy>=1.26,<3
+scipy>=1.12
+h5py>=3.10
+matplotlib>=3.8
+Pillow>=10
+orix>=0.13,<0.17
+numba>=0.59
+tkinterdnd2>=0.4
+PyCifRW==5.0.1

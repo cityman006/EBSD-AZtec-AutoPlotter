@@ -218,3 +218,46 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# EBSD-AZtec AutoPlotter local data, outputs, and environment
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+.idea/
+.vscode/
+build/
+dist/
+*.egg-info/
+*.pyc
+*.log
+
+output/
+outputs/
+results/
+logs/
+cache/
+analysis_cache/
+analysis_runs/
+renders/
+backups/
+installers/
+demo/
+
+*.h5
+*.h5oina
+*.ctf
+*.npz
+*.npy
+
+# Local machine preferences, installation/QA evidence, and upload report
+config/ui_preferences.json
+INSTALL_REPORT.md
+INSTALL_STATE.json
+MAD_UNIT_REPORT.md
+OUTPUT_ARCHIVING_PATCH_REPORT.md
+QA_RELEASE_STATUS.json
+WINDOWS_TESTED_VERSIONS.json
+validate_mad_fix.py
+finish_report.py
+GITHUB_UPLOAD_REPORT.md

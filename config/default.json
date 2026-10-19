@@ -1,0 +1,11 @@
+{
+  "paper_maps": ["IPF_X", "IPF_Y", "IPF_Z", "Phase", "KAM", "BC", "MAD"],
+  "ml_channels": ["qx", "qy", "qz", "qw", "phase_id", "kam_deg", "band_contrast"],
+  "ipf_engine": "orix.IPFColorKeyTSL",
+  "ipf_note": "Crystal-symmetry-correct TSL key, not certified to match Oxford AZtec exactly",
+  "phase_colours": "Use H5OINA original phase RGB per phase ID; 0 black",
+  "kam": {"neighbour_mode": 4, "max_angle_deg": 5.0, "boundary_lower_deg": 2.0, "high_angle_deg": 15.0,
+    "colormap": "jet", "display_limits_deg": [0, 5]},
+  "output": {"png_full_native_resolution": true, "paper_layout_dpi": 220, "scalebar_um_default": 50},
+  "v2": {"grain_threshold_deg": 5.0, "max_pixels_per_roi": 2200000, "minimum_pixels": 8}
+}
