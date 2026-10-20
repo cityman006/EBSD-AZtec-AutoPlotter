@@ -13,14 +13,17 @@ unmerged at `bc81e4170a7c7f6c5b117624bd74551903b230d7`.
 The independent V4 clone retains reviewed V3 operational fixes; original V3
 uncommitted files and raw experimental sources are untouched.
 
-| Stage | Branch / target | Draft PR | Stage head before M4 |
+| Stage | Branch / target | Draft PR | Implementation commit |
 |---|---|---|---|
 | M1 | feature/v4-modern-gui-batch → feature/advanced-crystallography-v3 | [#2](https://github.com/cityman006/EBSD-AZtec-AutoPlotter/pull/2) | 44a3d00d90e727fe64293da54a07e896cdb498a0 |
 | M2 | feature/v4-ebsd-quantitative → feature/v4-modern-gui-batch | [#3](https://github.com/cityman006/EBSD-AZtec-AutoPlotter/pull/3) | 58d5e3a8b4e43da83fd011c8c70a8213993ac8d7 |
 | M3 | feature/v4-patches-eds-gnn → feature/v4-ebsd-quantitative | [#4](https://github.com/cityman006/EBSD-AZtec-AutoPlotter/pull/4) | b71ef45e7fe00a31f31ddbdc8105874edcaf522e |
-| M4 | feature/v4-mechanics-diffusion → feature/v4-patches-eds-gnn | pending creation after final checks | final SHA in Git/PR |
+| M4 | feature/v4-mechanics-diffusion → feature/v4-patches-eds-gnn | [#5](https://github.com/cityman006/EBSD-AZtec-AutoPlotter/pull/5) | d03914320cbf7511a77760ce81c65f76f585b2e8 |
 
 No main commits, automatic merge, force-push, or public/private setting changes.
+Each PR remains Draft and mergeable as checked after creation. M1/M2/M3 exact
+head CI passed. M4's latest head result is published by the PR's Windows checks;
+the final delivery reports its observed status separately from local results.
 
 ## Implemented paths
 
