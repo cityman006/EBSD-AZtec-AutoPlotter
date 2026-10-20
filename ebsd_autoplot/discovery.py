@@ -2,6 +2,7 @@
 from dataclasses import dataclass, replace
 from pathlib import Path, PureWindowsPath
 import json
+import math
 import re
 import h5py
 from .storage import long_path, canonical_path
@@ -18,6 +19,15 @@ class ScanSpec:
     source_paths: tuple = ()  # File-level identity, common to independent scans.
     scan_count: int = 1
     scan_tag: str = ''
+    manifest_grid: tuple | None = None  # Explicit scan-level (nx, ny), when provided.
+
+
+def _manifest_integer(value, label, minimum=0):
+    if (isinstance(value, bool) or not isinstance(value, (int, float))
+            or (isinstance(value, float) and (not math.isfinite(value) or not value.is_integer()))
+            or value < minimum):
+        raise ValueError(f'{label} must be an integer >= {minimum}')
+    return int(value)
 
 def clean_source_name(value, *, from_manifest=True):
     if not isinstance(value, str) or not value.strip(): raise ValueError('Empty source_name')
@@ -83,12 +93,20 @@ def discover_scans(path):
             document,data=documents[0]
             for sc in data['scans']:
                 scan=sc['scan_path']; parts=[]; names=[]; tags=[]
+                grid = None
+                if 'nx' in sc or 'ny' in sc:
+                    if 'nx' not in sc or 'ny' not in sc:
+                        raise ValueError('Manifest scan grid requires both nx and ny')
+                    grid = (_manifest_integer(sc['nx'], 'Manifest nx', 1),
+                            _manifest_integer(sc['ny'], 'Manifest ny', 1))
                 declared=sc.get('source_name',data.get('source_name'))
                 if declared is not None: declared=clean_source_name(declared)
                 if sc.get('source_name') and data.get('source_name') and clean_source_name(data['source_name']).casefold()!=declared.casefold():
                     raise ValueError('Top-level and scan source_name disagree')
                 for part in sc['parts']:
-                    fp=_part_path(path,part['file']); first=int(part['row_start']); stop=int(part['row_end_exclusive'])
+                    fp=_part_path(path,part['file'])
+                    first=_manifest_integer(part['row_start'], 'Manifest row_start')
+                    stop=_manifest_integer(part['row_end_exclusive'], 'Manifest row_end_exclusive', 1)
                     match=ROWS.match(fp.name)
                     if first<0 or stop<=first: raise ValueError('Invalid montage row range')
                     if match and (first!=int(match[2]) or stop!=int(match[3])+1): raise ValueError(f'Manifest/filename row mismatch: {fp.name}')
@@ -108,7 +126,8 @@ def discover_scans(path):
                 if len(set(tags))>1 or (tags and sc.get('scan_id') is not None and tags[0]!=tag): raise ValueError('Montage scan identifiers disagree')
                 name=declared or (names[0] if names else path.name+'_montage')
                 basis='verified manifest source_name' if declared else ('shard provenance' if names else 'selected directory fallback')
-                specs.append(ScanSpec(path,scan,tuple(sorted(parts,key=lambda x:x[1])),name,basis,scan_tag=tag))
+                specs.append(ScanSpec(path,scan,tuple(sorted(parts,key=lambda x:x[1])),name,basis,
+                                      scan_tag=tag,manifest_grid=grid))
         else:
             groups={}
             for fp in sorted(path.glob('*_EBSD.h5')):

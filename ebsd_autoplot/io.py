@@ -72,6 +72,59 @@ class Part:
     start: int
     stop: int
 
+
+def _grid_integer(value, label, minimum=0):
+    """Read one explicit count; never truncate fractions or infer from length."""
+    raw = np.asarray(value)
+    if raw.size != 1 or raw.dtype.kind not in 'iuf':
+        raise ValueError(f'{label} must contain exactly one integer >= {minimum}')
+    number = raw.reshape(-1)[0]
+    if not np.isfinite(number) or number < minimum or number != int(number):
+        raise ValueError(f'{label} must be an integer >= {minimum}')
+    return int(number)
+
+
+def _part_grid(stream, scan_path, part):
+    """Validate global-header or explicitly proven local-header shard layout.
+
+    Compact_v1 preserves measured coordinates and slices arrays, while changing
+    Header/Y Cells to the local row count. Only its explicit global dimensions
+    and original row interval establish the full grid; array length is not
+    evidence for a missing global dimension or an offset.
+    """
+    head = stream[scan_path+'/Header']
+    nx = _grid_integer(head['X Cells'][()], 'Header X Cells', 1)
+    ny = _grid_integer(head['Y Cells'][()], 'Header Y Cells', 1)
+    keys = ('global_nx', 'global_ny', 'start_row_in_original', 'end_row_in_original_exclusive')
+    present = [key in stream.attrs for key in keys]
+    if any(present):
+        if not all(present):
+            raise ValueError(f'Incomplete extractor global grid/range metadata: {part.path.name}')
+        gx, gy = (_grid_integer(stream.attrs[key], key, 1) for key in keys[:2])
+        first = _grid_integer(stream.attrs[keys[2]], keys[2])
+        stop = _grid_integer(stream.attrs[keys[3]], keys[3], 1)
+        if first >= stop or stop > gy:
+            raise ValueError(f'Extractor row range exceeds global grid: {part.path.name}')
+        if part.stop == -1:
+            if (first, stop) != (0, gy):
+                raise ValueError('Partial extracted rows require the complete montage directory, not one shard')
+        elif (first, stop) != (part.start, part.stop):
+            raise ValueError(f'Extractor row range contradicts montage/filename: {part.path.name}')
+        if nx != gx or ny not in (gy, stop-first):
+            raise ValueError(f'Extractor Header dimensions contradict global/local grid: {part.path.name}')
+        basis = 'explicit root global grid and original row interval'
+    else:
+        gx, gy = nx, ny
+        basis = 'global Header grid contract'
+    if 'original_full_y_cells' in head['Y Cells'].attrs:
+        declared = _grid_integer(head['Y Cells'].attrs['original_full_y_cells'], 'original_full_y_cells', 1)
+        if declared != gy:
+            raise ValueError(f'original_full_y_cells contradicts global grid: {part.path.name}')
+    return gx, gy, {'file': str(part.path), 'header_nx': nx, 'header_ny': ny,
+                    'global_nx': gx, 'global_ny': gy,
+                    'header_layout': 'global' if ny == gy else 'local', 'basis': basis}
+
+
 class H5Source:
     def __init__(self, path, scan_id=None):
         if isinstance(path,ScanSpec): self.spec=path
@@ -97,8 +150,9 @@ class H5Source:
                 if len(candidates)!=1:raise ValueError(f'Expected one EBSD scan; found: {candidates}')
                 self.scan_path=candidates[0]
             head=f[self.scan_path+'/Header']
-            self.nx=int(_scalar(head,'X Cells'))
-            self.ny=int(_scalar(head,'Y Cells'))
+            self.nx,self.ny,_ = _part_grid(f,self.scan_path,self.parts[0])
+            if self.spec.manifest_grid is not None and self.spec.manifest_grid != (self.nx,self.ny):
+                raise ValueError('Manifest scan grid contradicts validated global grid')
             self.sx=float(_scalar(head,'X Step'))
             self.sy=float(_scalar(head,'Y Step'))
             self.phase_specs={}
@@ -122,12 +176,15 @@ class H5Source:
         if len(self.parts)==1 and self.parts[0].stop==-1:
             self.parts=[Part(self.parts[0].path,0,self.ny)]
         expected=0
+        grid_evidence=[]
         for p in self.parts:
             if p.start!=expected:raise ValueError(f'Missing or overlapping rows at {expected} to {p.start}')
             expected=p.stop
             with h5py.File(long_path(p.path),'r') as f:
                 head=f[self.scan_path+'/Header']; data=f[self.scan_path+'/Data']
-                if (int(_scalar(head,'X Cells')),int(_scalar(head,'Y Cells')))!=(self.nx,self.ny):raise ValueError('Montage grid dimensions disagree')
+                gx,gy,evidence=_part_grid(f,self.scan_path,p)
+                if (gx,gy)!=(self.nx,self.ny):raise ValueError('Montage grid dimensions disagree')
+                grid_evidence.append(evidence)
                 if (float(_scalar(head,'X Step')),float(_scalar(head,'Y Step')))!=(self.sx,self.sy):raise ValueError('Montage step sizes disagree')
                 for key,spec in self.phase_specs.items():
                     group=head['Phases'].get(str(key))
@@ -140,6 +197,7 @@ class H5Source:
                     if (key in data)!=self.available_fields[field]:raise ValueError(f'Shard fields disagree: {key}')
                     if key in data and data[key].shape[0]!=(p.stop-p.start)*self.nx:raise ValueError(f'Shard row count disagrees with manifest: {p.path.name}')
         if expected!=self.ny:raise ValueError(f'Scan has {self.ny} rows; provided partitions cover {expected}')
+        self.header['part_grid_layouts']=grid_evidence
         if not (self.sx>0 and self.sy>0):raise ValueError('Invalid scan step')
         unit,evidence=source_mad_units(self.parts,self.scan_path)
         self.header.update(mad_unit=unit,mad_unit_evidence=evidence)

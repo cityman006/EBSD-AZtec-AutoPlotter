@@ -9,6 +9,19 @@ import time
 from .storage import atomic_json,cancellation,Cancelled
 
 
+def _eds_for_cache(source_manifest, cache, config):
+    """Select verified montage input or an explicit frozen landmark source."""
+    project = config.pop('landmark_registration', None)
+    if project is not None:
+        from .eds_registration import load_registered_eds
+        return load_registered_eds(project, cache, **config)
+    from .eds import load_source_eds
+    from .pipeline import _source_for
+    source = _source_for(source_manifest)
+    print(f'EDS: verifying {len(source.parts)} source parts and native channels', flush=True)
+    return load_source_eds(source, **config)
+
+
 def run_action(action,cache,output_root,*,config=None,control_file=None):
     config=json.loads(json.dumps(config or {}))
     run=Path(output_root)/'studio_runs'/(action+'_'+datetime.now().strftime('%Y%m%d_%H%M%S_%f')+'_'+uuid.uuid4().hex[:8])
@@ -56,26 +69,31 @@ def run_action(action,cache,output_root,*,config=None,control_file=None):
                     build_graph(cache,v2,run/'results',**config)
                 else:
                     from .slicing import export_patches
+                    eds = None
                     if config.pop('include_eds',False):
-                        from .eds import load_h5oina_eds
-                        from .pipeline import _source_for
-                        source=_source_for(source_manifest)
-                        if len(source.parts)!=1:raise ValueError('EDS montage stitching requires explicit registration; export pure EBSD patches instead')
-                        config['eds']=load_h5oina_eds(source.path,source.scan_path)
+                        eds_config = config.pop('eds_options',{})
+                        eds_config['landmark_registration'] = config.pop('landmark_registration',None)
+                        eds = _eds_for_cache(source_manifest, cache, eds_config)
+                        config['eds'] = eds
                     if config.pop('include_grains',False):config['v2_dir']=v2
-                    export_patches(cache,run/'results',**config)
+                    try:
+                        export_patches(cache,run/'results',**config)
+                    finally:
+                        if eds is not None:eds.close()
             elif action=='eds':
-                from .eds import load_h5oina_eds,save_eds
-                from .pipeline import _source_for
+                from .eds import save_eds
                 import h5py
-                source=_source_for(source_manifest)
-                if len(source.parts)!=1:raise ValueError('EDS montage stitching is not implemented; use an explicitly registered single source')
-                result=load_h5oina_eds(source.path,source.scan_path,**config)
-                with h5py.File(cache,'r') as f:
-                    phase=f['features'][4,:,:];indexed=f['indexed'][:]>0
-                save_eds(result,run/'results',phase_map=phase,indexed=indexed,
-                         phase_names={i:s['name'] for i,s in source.phase_specs.items()})
-                print('EDS: '+result.metadata.get('status','available' if result.available else 'unavailable'),flush=True)
+                result = _eds_for_cache(source_manifest, cache, config)
+                try:
+                    with h5py.File(cache,'r') as f:
+                        phase=f['features'][4,:,:];indexed=f['indexed'][:]>0
+                        metadata=json.loads(f.attrs['metadata_json'])
+                    save_eds(result,run/'results',phase_map=phase,indexed=indexed,
+                             phase_names={i:s['name'] for i,s in metadata.get('phase_specs',{}).items()})
+                    print('EDS: '+result.metadata.get('status','available' if result.available else 'unavailable')+
+                          ('; '+result.metadata['reason'] if result.metadata.get('reason') else ''),flush=True)
+                finally:
+                    result.close()
             elif action=='dataset-split':
                 from .ml_dataset import PatchDataset,grouped_split
                 dataset=PatchDataset(config['index_files']);splits=grouped_split(dataset.entries,seed=config.get('seed',0))
