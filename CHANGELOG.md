@@ -1,5 +1,14 @@
 # Changelog
 
+## V4 research development M2
+
+- Phase-specific RX proxy, physical grain statistics, Euler maps and per-phase
+  quantitative summaries; independent cached-action runs and batch Summary.csv.
+- Corrected MRD normalization using Haar probability weights; legacy ODF grids
+  retained and rejected for newly versioned metrics.
+- Removed Euler unit guessing; explicit attributes and H5OINA format evidence.
+- Synthetic output validation and real small/large-file performance recorded.
+
 ## V4 research development M1
 
 - Added optional PySide6 Studio and portable per-folder Windows launch/install.

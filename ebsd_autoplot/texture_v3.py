@@ -8,6 +8,7 @@ values, not substitutes for the numeric density.
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 from pathlib import Path
 
@@ -22,6 +23,7 @@ from scipy.spatial.transform import Rotation
 
 from .storage import check_cancelled, transactional_output
 from .v3_crystal import ORIENTATION_CONVENTION, classify_phase_specs, point_group, normalize_quaternions
+from .texture_stats import ODF_ALGORITHM_ID, PF_ALGORITHM_ID, feature_signature, odf_haar_weights
 
 
 HCP_FAMILIES = {
@@ -150,18 +152,19 @@ def _odf_grid(samples, weights, space_group, bandwidth_deg, grid_step_deg, seed)
         angle = 2 * np.arccos(dot)
         density[start:start + 128] = np.exp(-0.5 * (angle / sigma) ** 2) @ expanded_weights
     density = density.reshape(len(phi1), len(Phi), len(phi2))
-    d1 = 2 * np.pi / len(phi1)
-    d2 = 2 * np.pi / len(phi2)
-    db = np.gradient(Phi)
-    haar = np.sin(Phi)[None, :, None] * db[None, :, None] * d1 * d2 / (8 * np.pi ** 2)
+    haar = odf_haar_weights(phi1, Phi, phi2)
     norm = float(np.sum(density * haar))
     if not np.isfinite(norm) or norm <= 0:
         raise ValueError("ODF normalization failed")
-    mrd = density / norm * (8 * np.pi ** 2)
-    integral = float(np.sum(mrd * haar) / (8 * np.pi ** 2))
+    # haar is already a probability measure: uniform MRD=1. Multiplying by
+    # 8*pi**2 again incorrectly scaled all old MRD values by that factor.
+    mrd = density / norm
+    integral = float(np.sum(mrd * haar))
     return phi1, Phi, phi2, mrd.astype(np.float32), {
         "density_measure": "SO(3) Haar measure",
-        "normalization": "integral(ODF dmu)=1; MRD=ODF/(1/(8*pi^2))",
+        "algorithm_id": ODF_ALGORITHM_ID,
+        "normalization": "integral(MRD dmu_Haar_probability)=1; uniform MRD=1",
+        "quadrature": "periodic phi cells; exact cos(Phi) interval masses",
         "integral_check": integral,
         "kernel": "symmetry-summed Gaussian of SO(3) geodesic angle; numerically Haar-normalized",
         "bandwidth_deg": float(bandwidth_deg),
@@ -170,23 +173,45 @@ def _odf_grid(samples, weights, space_group, bandwidth_deg, grid_step_deg, seed)
     }
 
 
+def _pf_bin_areas(edges, radius=np.sqrt(2)):
+    """Analytic rectangle/disk intersection areas, including partial rim bins."""
+    edges = np.asarray(edges, float)
+    r = float(radius)
+    if r <= 0 or edges.ndim != 1 or len(edges) < 2 or np.any(np.diff(edges) <= 0):
+        raise ValueError("PF disk bins require positive radius and increasing edges")
+    xx, yy = np.meshgrid(edges, edges, indexing="ij")
+    x, y = np.clip(np.abs(xx), 0, r), np.clip(np.abs(yy), 0, r)
+    a = np.sqrt(np.maximum(r*r-y*y, 0))
+    def integral(t):
+        return .5*(t*np.sqrt(np.maximum(r*r-t*t, 0)) + r*r*np.arcsin(np.clip(t/r, 0, 1)))
+    primitive = np.where(x <= a, x*y, y*a+integral(x)-integral(a))
+    primitive *= np.sign(xx)*np.sign(yy)
+    areas = primitive[1:,1:] - primitive[:-1,1:] - primitive[1:,:-1] + primitive[:-1,:-1]
+    return np.maximum(areas, 0)
+
+
 def _plot_pf(path, poles, *, title, bins=180, formats=("png",)):
-    z = poles[:, 2]
-    poles = poles.copy()
+    poles = np.asarray(poles, float).copy()
+    if poles.ndim != 2 or poles.shape[1] != 3 or not len(poles) or not np.isfinite(poles).all():
+        raise ValueError("PF requires finite nonempty unit pole vectors")
+    norms = np.linalg.norm(poles, axis=1)
+    if np.any(norms <= 0): raise ValueError("Zero pole vector is invalid")
+    poles /= norms[:, None]
     poles[poles[:, 2] < 0] *= -1  # antipodal upper-hemisphere convention
     denom = np.sqrt(np.maximum(1 + poles[:, 2], 1e-15))
     # Equal-area Lambert azimuthal projection, disk radius sqrt(2).
     x = np.sqrt(2) * poles[:, 0] / denom
     y = np.sqrt(2) * poles[:, 1] / denom
     edges = np.linspace(-np.sqrt(2), np.sqrt(2), bins + 1)
-    counts, _, _ = np.histogram2d(x, y, bins=(edges, edges))
-    centers = (edges[:-1] + edges[1:]) / 2
-    xx, yy = np.meshgrid(centers, centers, indexing="ij")
-    inside = xx * xx + yy * yy <= 2
+    counts, _, _ = np.histogram2d(np.clip(x, edges[0], edges[-1]),
+                                 np.clip(y, edges[0], edges[-1]), bins=(edges, edges))
+    areas = _pf_bin_areas(edges)
+    inside = areas > np.finfo(float).eps
     mud = np.full_like(counts, np.nan, dtype=np.float64)
     total = counts.sum()
-    if total > 0:
-        mud[inside] = counts[inside] / max(total / inside.sum(), 1e-15)
+    if total != len(poles) or np.any(counts[~inside]):
+        raise ValueError("PF disk histogram failed pole-count conservation")
+    mud[inside] = counts[inside]/total * (2*np.pi)/areas[inside]
     vmin = max(0.0, float(np.nanpercentile(mud, 2)))
     vmax = max(vmin + 1e-6, float(np.nanpercentile(mud, 98)))
     fig, ax = plt.subplots(figsize=(5.2, 4.8), layout="constrained")
@@ -195,7 +220,7 @@ def _plot_pf(path, poles, *, title, bins=180, formats=("png",)):
     ax.set_aspect("equal"); ax.set_xlim(-1.48, 1.48); ax.set_ylim(-1.48, 1.48)
     ax.set_xlabel("Sample X (Lambert equal-area)"); ax.set_ylabel("Sample Y")
     ax.set_title(title + "\nAntipodal upper hemisphere; PF, not IPF")
-    fig.colorbar(im, ax=ax, label="MUD (mean valid-bin density = 1)")
+    fig.colorbar(im, ax=ax, label="MUD (uniform hemisphere density = 1)")
     for fmt in formats: fig.savefig(path.with_suffix("." + fmt), dpi=220)
     plt.close(fig)
     return mud
@@ -205,12 +230,14 @@ def _plot_pf(path, poles, *, title, bins=180, formats=("png",)):
 def analyze_texture(features_file, outdir, *, families=None, weighting="area",
                     bandwidth_deg=10.0, grid_step_deg=15.0, max_samples=2000,
                     seed=11, sample_rotation_euler_deg=(0.0, 0.0, 0.0),
-                    formats=("png",)):
+                    formats=("png",), min_phase_samples=50):
     """Write PF MUD, normalized SO(3) ODF grid, plots, and auditable parameters."""
     outdir = Path(outdir); outdir.mkdir(parents=True, exist_ok=True)
     formats = tuple(dict.fromkeys(str(x).lower().lstrip(".") for x in formats))
     if not formats or set(formats) - {"png", "pdf", "svg", "tiff"}:
         raise ValueError("V3 texture formats must be PNG, PDF, SVG, or TIFF")
+    if int(min_phase_samples) < 50:
+        raise ValueError("Quantitative texture requires at least 50 samples per phase")
     summaries = []
     sample_rotation = Rotation.from_euler("ZXZ", np.deg2rad(sample_rotation_euler_deg))
     with h5py.File(features_file, "r") as f:
@@ -223,6 +250,18 @@ def analyze_texture(features_file, outdir, *, families=None, weighting="area",
         h, w = f["indexed"].shape
         with h5py.File(outdir / "odf_grid.h5", "w") as odf:
             odf.attrs["schema_version"] = 1
+            odf.attrs["odf_algorithm_id"] = ODF_ALGORITHM_ID
+            odf.attrs["pf_algorithm_id"] = PF_ALGORITHM_ID
+            odf.attrs["features_signature_json"] = json.dumps(feature_signature(features_file), sort_keys=True)
+            texture_configuration = {"families": families, "weighting": weighting,
+                "bandwidth_deg": bandwidth_deg, "grid_step_deg": grid_step_deg,
+                "max_samples": max_samples, "seed": seed,
+                "min_phase_samples": int(min_phase_samples),
+                "sample_rotation_euler_deg": list(sample_rotation_euler_deg),
+                "algorithm_id": ODF_ALGORITHM_ID}
+            texture_configuration["pf_algorithm_id"] = PF_ALGORITHM_ID
+            odf.attrs["configuration_json"] = json.dumps(texture_configuration, sort_keys=True)
+            odf.attrs["configuration_hash"] = hashlib.sha256(odf.attrs["configuration_json"].encode()).hexdigest()
             odf.attrs["orientation_convention"] = ORIENTATION_CONVENTION
             odf.attrs["plot_type"] = "PF is a pole projection; ODF is a normalized SO(3) density"
             for pid, kind in kinds.items():
@@ -230,19 +269,27 @@ def analyze_texture(features_file, outdir, *, families=None, weighting="area",
                 spec = specs[pid]
                 lattice = spec.get("lattice_parameters") or {}
                 ca_value = spec.get("c_over_a", lattice.get("c_over_a"))
-                if kind == "alpha" and ca_value is None:
-                    raise ValueError(f"Measured HCP lattice parameters missing for phase {pid}; no nominal Ti constant is substituted")
                 ca = float(ca_value or 1.0)
                 if weighting == "grain":
                     samples, weights = _sample_grains(Path(features_file).parent / "v2" / "grains.csv", pid, max_samples, seed)
-                    if not len(samples):
-                        continue
                 elif weighting == "area":
                     samples, weights = _sample_pixels(f["indexed"], f["features"], pid, max_samples, seed)
                 else:
                     raise ValueError("weighting must be 'area' or 'grain'")
-                if len(samples) < 1:
+                if len(samples) < int(min_phase_samples):
+                    group = odf.create_group(f"phase_{pid}_{kind}")
+                    group.attrs["phase_id"] = int(pid); group.attrs["phase_name"] = str(spec["name"])
+                    group.attrs["space_group"] = int(spec["space_group"])
+                    group.attrs["status"] = "unavailable_insufficient_phase_samples"
+                    group.attrs["orientation_samples"] = len(samples)
+                    group.attrs["minimum_required_samples"] = int(min_phase_samples)
+                    summaries.append({"phase_id": pid, "phase": spec["name"], "kind": "PF_ODF",
+                        "status": "unavailable_insufficient_phase_samples", "orientation_samples": len(samples),
+                        "minimum_required_samples": int(min_phase_samples), "PF_peak_MUD": float("nan"),
+                        "ODF_peak_MRD": float("nan"), "texture_index_J": float("nan")})
                     continue
+                if kind == "alpha" and ca_value is None:
+                    raise ValueError(f"Measured HCP lattice parameters missing for phase {pid}; no nominal Ti constant is substituted")
                 # Explicit sample-frame rotation is a left action. The source
                 # scanning/specimen rotations are recorded but not guessed.
                 oriented = (sample_rotation * Rotation.from_quat(samples)).as_quat()
@@ -260,6 +307,12 @@ def analyze_texture(features_file, outdir, *, families=None, weighting="area",
                     mud = _plot_pf(pf_path, all_poles, title=f"{spec['name']} {{family {family}}}", formats=formats)
                     pgrp = group.create_group(f"PF_{family}")
                     pgrp.create_dataset("MUD", data=mud.astype(np.float32), compression="gzip")
+                    pf_edges = np.linspace(-np.sqrt(2), np.sqrt(2), mud.shape[0]+1)
+                    areas = _pf_bin_areas(pf_edges)
+                    pgrp.create_dataset("bin_disk_area", data=areas)
+                    pgrp.create_dataset("x_edges", data=pf_edges); pgrp.create_dataset("y_edges", data=pf_edges)
+                    pgrp.attrs["pf_algorithm_id"] = PF_ALGORITHM_ID
+                    pgrp.attrs["area_weighted_mean_MUD"] = float(np.nansum(mud*areas)/(2*np.pi))
                     pgrp.attrs["family"] = family; pgrp.attrs["projection"] = "Lambert equal-area"
                     pgrp.attrs["antipodal"] = True; pgrp.attrs["valid_pole_count"] = len(all_poles)
                     pgrp.attrs["mean_valid_bin_MUD"] = float(np.nanmean(mud))
@@ -289,8 +342,11 @@ def analyze_texture(features_file, outdir, *, families=None, weighting="area",
                                   "orientation_samples": len(samples), **odf_params})
         summary = {
             "schema_version": 1, "method": "symmetry-summed Gaussian SO(3) kernel; numerical Haar normalization",
+            "odf_algorithm_id": ODF_ALGORITHM_ID,
+            "pf_algorithm_id": PF_ALGORITHM_ID,
             "weighting": weighting, "sampling": "seeded equal-area raster strata" if weighting == "area" else "one equally weighted V2 grain mean",
             "seed": int(seed), "max_samples": int(max_samples), "orientation_convention": ORIENTATION_CONVENTION,
+            "min_phase_samples": int(min_phase_samples),
             "source_euler_unit": meta["angular_units_input"],
             "source_scanning_rotation_rad": meta.get("scanning_rotation_rad"),
             "source_specimen_orientation_euler": meta.get("specimen_orientation_euler"),

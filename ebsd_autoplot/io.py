@@ -168,12 +168,50 @@ class H5Source:
                     arr[a-first:b-first]=sample.reshape(arr[a-first:b-first].shape)
         return out
     def probe_euler_unit(self):
-        # Oxford H5OINA stores Euler triplets in radians; reject implausible values
-        e=self.read(0,min(8,self.ny),('euler',))['euler']
-        q=np.nanpercentile(e.reshape(-1,3),99.9,axis=0)
-        if np.any(q > 2*np.pi+0.2):
-            return 'degree'
-        return 'radian'
+        """Resolve Euler units from metadata, never from angle magnitudes.
+
+        Explicit dataset Unit/Units attributes take precedence. An absent
+        attribute follows the Oxford AZtec H5OINA Euler-radian format contract
+        (also preserved by row-split exports), with that evidence recorded.
+        Unknown attributes, conflicting declarations, or mixed shard units fail
+        rather than mixing orientations in one numeric cache.
+        """
+        self.check_unchanged()
+        aliases = {"rad": "radian", "radian": "radian", "radians": "radian",
+                   "deg": "degree", "degree": "degree", "degrees": "degree", "°": "degree"}
+        sources = []
+        units = set()
+        for part in self.parts:
+            declarations = []
+            with h5py.File(long_path(part.path), 'r') as stream:
+                dataset = stream[self.scan_path + '/Data/Euler']
+                for name, raw in dataset.attrs.items():
+                    if str(name).casefold() not in ('unit', 'units'):
+                        continue
+                    values = np.asarray(raw).reshape(-1)
+                    if not values.size:
+                        raise ValueError(f'Empty Euler unit attribute in {part.path.name}')
+                    for value in values:
+                        text = value.decode('utf-8', 'strict') if isinstance(value, (bytes, np.bytes_)) else str(value)
+                        normalized = aliases.get(text.strip().casefold())
+                        if normalized is None:
+                            raise ValueError(f'Unsupported Euler unit {text!r} in {part.path.name}; expected degree or radian')
+                        declarations.append((str(name), text, normalized))
+            declared_units = {value[2] for value in declarations}
+            if len(declared_units) > 1:
+                raise ValueError(f'Conflicting Euler Unit/Units attributes in {part.path.name}')
+            unit = next(iter(declared_units)) if declared_units else 'radian'
+            units.add(unit)
+            sources.append({'file': str(part.path), 'dataset': self.scan_path + '/Data/Euler',
+                            'unit': unit, 'attributes': [dict(name=n, value=v) for n, v, _ in declarations],
+                            'basis': 'explicit dataset attribute' if declarations else
+                                     'Oxford AZtec H5OINA Euler-radian format contract; no unit attribute'})
+        if len(units) != 1:
+            raise ValueError('Montage Euler units disagree across shards; mixed degree/radian data are not accepted')
+        unit = next(iter(units))
+        self.header['euler_unit_evidence'] = {'unit': unit, 'sources': sources,
+            'policy': 'dataset attributes or H5OINA format contract; never numeric magnitude inference'}
+        return unit
     def iter_rows(self, batch=64,fields=('euler','phase')):
         for start in range(0,self.ny,batch):
             yield start,min(start+batch,self.ny),self.read(start,min(start+batch,self.ny),fields)

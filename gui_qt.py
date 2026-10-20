@@ -136,7 +136,7 @@ class Studio(W.QMainWindow):
         self.setCentralWidget(self.viewer)
         self.params=W.QWidget(); form=W.QFormLayout(self.params)
         self.help=W.QLabel(); self.help.setWordWrap(True); form.addRow(self.help)
-        self.mode=W.QComboBox(); self.mode.addItems(['v1','v1v2','v3_texture','v3_schmid','v3_variants','v3_prior_beta'])
+        self.mode=W.QComboBox(); self.mode.addItems(['v1','v1v2','v3_texture','v3_schmid','v3_variants','v3_prior_beta','v4_quantitative'])
         form.addRow('Analysis / 分析',self.mode)
         self.roi=W.QLineEdit(); self.roi.setPlaceholderText('X Y WIDTH HEIGHT (blank = full scan)'); form.addRow('ROI pixels',self.roi)
         self.axis=W.QLineEdit('0 0 1'); form.addRow('Load axis X Y Z',self.axis)
@@ -164,6 +164,8 @@ class Studio(W.QMainWindow):
         self.cancel_button=W.QPushButton(); self.cancel_button.clicked.connect(self.cancel); form.addRow(self.cancel_button)
         self.resume_button=W.QPushButton('Resume batch / 恢复批次'); self.resume_button.clicked.connect(self.resume_batch); form.addRow(self.resume_button)
         self.render_button=W.QPushButton('Render Only / 缓存重绘'); self.render_button.clicked.connect(self.render_only); form.addRow(self.render_button)
+        self.quant_button=W.QPushButton('RX / Euler / Grain Size (cache)');self.quant_button.clicked.connect(self.quantitative);form.addRow(self.quant_button)
+        self.rx_config=W.QLineEdit('{}');self.rx_config.setPlaceholderText('Phase ID → thresholds JSON');form.addRow('RX phase rules',self.rx_config)
         self.history_button=W.QPushButton('Refresh history / 刷新历史'); self.history_button.clicked.connect(self.history); form.addRow(self.history_button)
         theme=W.QPushButton('Light / Dark'); theme.clicked.connect(lambda:self.set_theme(not self.dark)); form.addRow(theme)
         language=W.QPushButton('中文 / English'); language.clicked.connect(self.toggle_language); form.addRow(language)
@@ -206,6 +208,7 @@ class Studio(W.QMainWindow):
             11:'Optional dependencies: PySide6 for Qt; torch only for AI. Tk fallback remains gui.py.'}
         self.help.setText(descriptions.get(row,''))
         if row==3:self.mode.setCurrentText('v3_texture')
+        if row==4:self.mode.setCurrentText('v4_quantitative')
         if row==10:self.history()
     def error(self,text):
         self.log.appendPlainText('ERROR: '+str(text)); W.QMessageBox.warning(self,'EBSD Studio',str(text))
@@ -241,6 +244,7 @@ class Studio(W.QMainWindow):
         args=['--analysis',self.mode.currentText(),'--batch',str(self.block.value()),'--font',self.font.currentText(),
               '--v3-weighting',self.weight.currentText(),'--v3-load-axis',*self.axis.text().split(),'--formats',*formats,
               '--maps',*maps,'--layout',*layout]
+        if self.mode.currentText()=='v4_quantitative':args+=['--rx-threshold-json',json.dumps(json.loads(self.rx_config.text()))]
         if self.roi.text().strip():
             vals=[int(x) for x in self.roi.text().split()]
             if len(vals)!=4 or min(vals[:2])<0 or min(vals[2:])<1:raise ValueError('ROI requires X Y WIDTH HEIGHT within scan')
@@ -304,6 +308,20 @@ class Studio(W.QMainWindow):
                          '--formats',*[k for k,v in self.formats.items() if v.isChecked()],
                          '--maps',*[k for k,v in self.map_checks.items() if v.isChecked()],
                          '--layout',*self.layout_select.currentText().split(' × '),'--control-file',str(self.control)])
+        except Exception as exc:self.error(exc)
+    def cached_action(self,action,config):
+        if self.process and self.process.state()!=C.QProcess.ProcessState.NotRunning:
+            raise ValueError('A task is already running')
+        if not self.viewer.cache:self.error('Open an archived features.h5 first');return
+        import uuid
+        self.control=Path(self.out.text())/'.job_control'/('qt_action_'+uuid.uuid4().hex+'.json')
+        atomic_json(self.control,{'cancel':False});self.batch_run=None
+        self.launch(['-u','-m','ebsd_autoplot.studio_actions',action,'--cache',str(self.viewer.cache),
+                     '--output-root',self.out.text(),'--config',json.dumps(config),'--control-file',str(self.control)])
+    def quantitative(self):
+        try:
+            formats=[k for k,v in self.formats.items() if v.isChecked()]
+            self.cached_action('quantitative',{'formats':formats,'font':self.font.currentText(),'thresholds':json.loads(self.rx_config.text())})
         except Exception as exc:self.error(exc)
     def history(self):
         self.history_list.clear()
