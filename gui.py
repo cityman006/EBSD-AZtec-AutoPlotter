@@ -26,13 +26,14 @@ class App:
                 self.root=tk.Tk()
         else:
             self.root=tk.Tk()
-        self.root.title('EBSD-AZtec Auto Plotter | V1+V2')
-        self.root.geometry('920x760')
+        self.root.title('EBSD-AZtec Auto Plotter | V1+V2+V3')
+        self.root.geometry('920x800')
         self.preferences=Path(__file__).resolve().parent/'config'/'ui_preferences.json'
         try: saved=json.loads(self.preferences.read_text(encoding='utf-8'))
         except (OSError,ValueError): saved={}
         self.infile=tk.StringVar();self.outfile=tk.StringVar(value=saved.get('output_root',''))
-        self.an=tk.StringVar(value='v1');self.roi=tk.StringVar(value='0 0 800 800')
+        self.an=tk.StringVar(value='v1');self.roi=tk.StringVar(value='0 0 800 800');self.load_axis=tk.StringVar(value='0 0 1')
+        self.v3_weighting=tk.StringVar(value='area');self.v3_bandwidth=tk.StringVar(value='10')
         self.threads=tk.StringVar(value='32');self.font=tk.StringVar(value='Arial');self.formats=tk.StringVar(value='png pdf svg')
         self.msg_queue=queue.Queue();self.manager=JobManager(Path(__file__).resolve().parent,self.msg_queue)
         self.active_job=tk.StringVar();self.history_items=[]
@@ -58,10 +59,18 @@ class App:
         self.infile.trace_add('write',lambda *_:self.update_paths())
         self.outfile.trace_add('write',lambda *_:self.update_paths())
         ttk.Label(main,text='Processing mode').pack(anchor='w')
-        combo=ttk.Combobox(main,textvariable=self.an,values=['inspect','v1','v1v2','v2'],state='readonly')
+        combo=ttk.Combobox(main,textvariable=self.an,values=['inspect','v1','v1v2','v2','v3_texture','v3_schmid','v3_variants','v3_prior_beta'],state='readonly')
         combo.pack(anchor='w',pady=6)
         ttk.Label(main,text='V2 ROI (X Y WIDTH HEIGHT); for huge scans, do V1 first, then V2 ROI').pack(anchor='w')
         ttk.Entry(main,textvariable=self.roi,width=35).pack(anchor='w',pady=(3,10))
+        axisrow=ttk.Frame(main);axisrow.pack(anchor='w',pady=(0,6))
+        ttk.Label(axisrow,text='V3 Schmid loading axis in sample coordinates (X Y Z)').pack(side='left')
+        ttk.Entry(axisrow,textvariable=self.load_axis,width=15).pack(side='left',padx=6)
+        odfrow=ttk.Frame(main);odfrow.pack(anchor='w',pady=(0,8))
+        ttk.Label(odfrow,text='V3 ODF weighting').pack(side='left')
+        ttk.Combobox(odfrow,textvariable=self.v3_weighting,values=['area','grain'],state='readonly',width=10).pack(side='left',padx=5)
+        ttk.Label(odfrow,text='Kernel bandwidth (degrees)').pack(side='left',padx=(8,0))
+        ttk.Entry(odfrow,textvariable=self.v3_bandwidth,width=8).pack(side='left',padx=5)
         ttk.Label(main,text='Processing block rows (lower value uses less memory)').pack(anchor='w')
         ttk.Entry(main,textvariable=self.threads,width=10).pack(anchor='w',pady=5)
         opts=ttk.Frame(main);opts.pack(anchor='w',pady=5)
@@ -164,7 +173,7 @@ class App:
             messagebox.showerror('Cannot save output preference',str(exc));return
         argv=[sys.executable,'-u','-m','ebsd_autoplot',self.infile.get(),'--output-root',self.outfile.get(),
               '--analysis',self.an.get(),'--batch',self.threads.get(),'--font',self.font.get(), '--formats',*formats]
-        if self.an.get() in ('v2','v1v2'):
+        if self.an.get() in ('v2','v1v2','v3_schmid','v3_variants','v3_prior_beta'):
             try:
                 roi=self.roi.get().split()
                 if len(roi)!=4:raise ValueError()
@@ -172,6 +181,20 @@ class App:
             except ValueError:
                 messagebox.showerror('Invalid ROI','Enter X Y WIDTH HEIGHT as integers');return
             argv+=['--roi',*roi]
+        if self.an.get() in ('v3_schmid','v3_variants','v3_prior_beta'):
+            try:
+                axis=self.load_axis.get().split()
+                if len(axis)!=3 or not all(__import__('math').isfinite(float(x)) for x in axis) or sum(float(x)**2 for x in axis)<1e-20:raise ValueError()
+            except ValueError:
+                messagebox.showerror('Invalid loading axis','Enter a finite nonzero sample-coordinate vector as X Y Z');return
+            argv+=['--v3-load-axis',*axis]
+        if self.an.get()=='v3_texture':
+            try:
+                bandwidth=float(self.v3_bandwidth.get())
+                if not __import__('math').isfinite(bandwidth) or bandwidth<=0:raise ValueError()
+            except ValueError:
+                messagebox.showerror('Invalid ODF bandwidth','Enter a positive finite bandwidth in degrees');return
+            argv+=['--v3-weighting',self.v3_weighting.get(),'--v3-bandwidth',str(bandwidth)]
         self._submit(argv)
     def _datasets(self):
         if not self.outfile.get().strip():return []
@@ -350,12 +373,14 @@ if __name__=='__main__':
                 yield from descendants(child)
         buttons=[w for w in descendants(app.root) if isinstance(w,ttk.Button)]
         chooser=[w for w in buttons if w.cget('text')=='Select file']
+        modes=[w for w in descendants(app.root) if isinstance(w,ttk.Combobox) and 'v3_texture' in w.cget('values')]
         hwnd=app.root.winfo_id()
         visible=bool(ctypes.windll.user32.IsWindowVisible(hwnd)) if os.name=='nt' else bool(app.root.winfo_viewable())
         result={'pid':os.getpid(),'python':sys.executable,'title':app.root.title(),
                 'hwnd':hwnd,'mapped':bool(app.root.winfo_ismapped()),'visible':visible,
                 'event_loop':True,'file_selection_command':bool(chooser and chooser[0].cget('command')),
-                'drag_and_drop':app.dnd_enabled}
+                'drag_and_drop':app.dnd_enabled,
+                'analysis_modes':list(modes[0].cget('values')) if modes else []}
         print('GUI_READY '+json.dumps(result),flush=True)
         if args.ready_file:
             atomic_json(args.ready_file,result)

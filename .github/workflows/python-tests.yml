@@ -1,0 +1,21 @@
+name: Python tests
+
+on:
+  push:
+    branches: [main, feature/advanced-crystallography-v3]
+  pull_request:
+    branches: [main]
+
+jobs:
+  tests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -r requirements.txt pytest
+      - run: python -m pytest tests -q

@@ -1,52 +1,56 @@
-# EBSD-AZtec AutoPlotter V1+V2
+# EBSD-AZtec AutoPlotter V1+V2+V3
 
-A Windows desktop research tool for batch inspection, plotting, and exploratory analysis of Oxford Instruments AZtec EBSD HDF5 data. It provides a Python/Tkinter GUI and command-line pipeline. The project has no declared semantic release number or installer executable.
+A Windows Python/Tkinter research application for processing Oxford Instruments AZtec H5OINA/HDF5 EBSD maps. The repository does not declare a semantic version or ship a compiled installer; V3 is an opt-in research feature set on the `feature/advanced-crystallography-v3` branch.
 
 ## Features
 
-- **V1 plotting:** streams scan data from '.h5oina' and compatible '.h5' files, including files containing multiple scans; produces IPF X/Y/Z, phase, KAM, band contrast, MAD, pattern quality, and a 2x4 overview panel.
-- **V2 research analysis:** optional ROI grain segmentation and summaries, GOS/GROD-style maps, neighbor graph and BOR candidate screening. These are exploratory outputs and need validation against domain references before scientific conclusions.
-- **Large inputs:** reads data in row blocks; '--block-rows' (GUI: Processing block rows) trades memory for throughput. Large montage files can be split into scan-specific HDF5 shards with a JSON manifest, retaining original scan names and separating scans.
-- **Run safety:** outputs are isolated by run and scan; interrupted jobs record state for recovery. Results are written through temporary files and committed atomically where supported.
-- **Export:** PNG, TIFF, PDF, and SVG. Raster maps are embedded in PDF/SVG; labels remain vector text. Font selection is limited to fonts installed on Windows.
-- **GUI:** inspect, V1, V1+V2, and V2 modes; ROI and block-row settings; format picker with individual checkboxes and select-all/clear-all.
+- **V1 plotting:** row-blocked scan reads, IPF X/Y/Z, phase, KAM, band contrast, MAD, pattern quality, and overview layouts. Input Euler units follow the H5OINA metadata contract; the cache records the input unit.
+- **V2 analysis:** optional ROI grain segmentation, grain summaries, boundary/GOS/GROD-style fields and grain adjacency graph. V2 results remain exploratory.
+- **V3 texture:** pole figures for HCP `{0001}`, `{10-10}`, `{11-20}` and BCC `{100}`, `{110}`, `{111}` families; PF intensity is MUD (mean valid-bin density = 1). The numeric ODF is a symmetry-summed Gaussian kernel on a Bunge ZXZ SO(3) grid, normalized with the Haar measure and stored in HDF5. Pixel-area and equal-grain weighting are explicit choices. The plots are not substitutes for numeric ODF data.
+- **V3 α-Ti Schmid analysis:** basal `<a>`, prismatic `<a>`, pyramidal `<a>`, and pyramidal `<c+a>` families, derived from measured HCP lattice parameters and sample-frame loading direction. Uniaxial Schmid factor `m` is dimensionless; stress-resolved shear `τ=sᵀσn` is separately labeled in MPa. No local stress, CRSS-based activation, or “first slip” claim is inferred.
+- **V3 BOR / prior β:** constructs twelve ideal Burgers variants, fits α-grain candidates, retains unknown/ambiguous cases, and reports inferred parent coverage, OR residuals and confidence. A single α grain does not uniquely identify its parent. Inferred prior-β coverage is not a measured volume fraction. `variant_boundary_type_map` distinguishes same-parent variant boundaries, inferred parent boundaries, and unknown edges.
+- **Archive and export:** per-scan/per-run outputs, resumable checkpoints, analysis cache, independent Render Only, installed-font selection and PNG/TIFF/PDF/SVG exports are retained. V3 results are transactional additions inside the selected analysis run.
 
-## Input and outputs
+## Inputs and coordinate conventions
 
-Supported inputs are Oxford AZtec '.h5oina' and compatible '.h5' EBSD maps. Use only data files you are authorized to process. The public source repository does not contain experimental inputs or generated result folders.
+Supported inputs are `.h5oina` and compatible AZtec `.h5` files, including montage scan manifests. V3 requires explicit source phase names and supported space groups (named HCP Ti, SG 194; named BCC Ti, SG 229); it does not infer phase identity from numeric raster IDs. V3 also requires measured HCP lattice dimensions for `c/a`; it does not insert nominal Ti constants.
 
-Each run creates a separate output directory so later runs do not replace earlier results. HDF5 feature caches such as 'features.h5' contain derived values used for independent re-rendering; they are not raw input files.
+The V3 orientation contract is Bunge ZXZ Euler angles in radians at input, SciPy quaternion order `xyzw`, and active crystal-Cartesian to sample-Cartesian rotations. Source specimen/scanning metadata is recorded, but those transforms are not applied until their AZtec frame/sign conventions are independently verified. The Schmid loading vector is specified in sample coordinates. ODF sample rotation is an explicit left action, defaulting to identity.
 
-## Windows setup
+## Windows setup and use
 
-1. Install 64-bit Python 3.12 from [python.org](https://www.python.org/downloads/windows/), with Tcl/Tk support.
-2. Clone this repository and open its folder.
-3. Double-click 'INSTALL_WINDOWS.cmd' (requires internet for Python packages), then 'START_WINDOWS.cmd'.
-4. To repair/check an existing environment, use 'REPAIR_WINDOWS.cmd'.
+1. Install 64-bit Python 3.12 with Tcl/Tk.
+2. Clone the repository and run `INSTALL_WINDOWS.cmd`.
+3. Start with `START_WINDOWS.cmd`.
 
-Alternatively, from PowerShell in the project directory:
+Alternatively, from PowerShell in the repository:
 
-    py -3.12 -m venv .venv
-    & .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-    & .\.venv\Scripts\python.exe -m pytest tests -q
-    & .\.venv\Scripts\python.exe gui.py
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pytest tests -q
+.\.venv\Scripts\python.exe gui.py
+```
 
-The application is implemented in Python; Windows supplies Tkinter and Tcl/Tk. No separate analysis application is required for normal V1/V2 processing. MATLAB with MTEX is only needed to run the optional external reconstruction example.
+In the GUI choose `v3_texture`, `v3_schmid`, `v3_variants`, or `v3_prior_beta`. The grain analyses use the ROI field; Schmid uses the sample-coordinate loading axis. Equivalent CLI examples:
 
-## Scientific calculations and limits
+```powershell
+python -m ebsd_autoplot scan.h5oina --output-root output --analysis v3_texture --v3-weighting area
+python -m ebsd_autoplot scan.h5oina --output-root output --analysis v3_schmid --roi 0 0 800 800 --v3-load-axis 0 0 1
+python -m ebsd_autoplot scan.h5oina --output-root output --analysis v3_variants --roi 0 0 800 800
+python -m ebsd_autoplot scan.h5oina --output-root output --analysis v3_prior_beta --roi 0 0 800 800
+```
 
-- **IPF:** uses 'orix''s TSL color key and the phase/crystal symmetry metadata. The AZtec color-key output has not been calibrated as identical.
-- **KAM:** four-neighbor, same-phase local misorientation; neighbors above 5 degrees are excluded.
-- **MAD:** the source quantity is read in radians and converted to degrees for display; its fixed 0-2 degree scale was checked against the source unit metadata and sample values.
-- **V2:** grain/texture summaries and Burgers orientation relationship candidate screening are research aids. Candidate screening does not certify prior-beta parent reconstruction. Texture preview is not a full ODF.
-- **MTEX:** 'mtex/reconstruct_prior_beta.m' is an optional reference example and has not been executed or validated in this delivery environment. See the adjacent MTEX GPL-2.0 notice.
+Large files are read in row blocks for V1; V3 ODF currently samples a seeded maximum number of orientations and uses a fixed numeric SO(3) grid. Schmid and grain reconstruction require an ROI and enforce a pixel safety limit. Large full-map V3 performance has not been benchmarked.
 
-## Verification status
+## Scientific status and verification limits
 
-The local Windows environment passed the project test suite (58 passed, 2 upstream deprecation warnings), a GUI startup/event-loop smoke check, and a V1+V2 small real-sample acceptance run. The source input hash was unchanged by the run. This evidence does not validate AZtec color matching, external scientific accuracy, full-size performance, or MATLAB/MTEX reconstruction. The large 17.7-million-pixel case and independent scientific reference comparisons remain unverified.
+V3 outputs are research analyses. Synthetic checks cover phase mapping, HCP/BCC symmetry utilities, PF families, ODF Haar normalization, Schmid system geometry, the twelve BOR variants, isolated-grain ambiguity, archive integration and inferred-parent QC. These checks do not establish agreement with an independent scientific package or experimental reference.
 
-Run tests with 'python -m pytest tests -q'. Runtime requirements are listed in 'requirements.txt'; the Windows Python 3.12 lock file records a tested package set.
+`mtex/reconstruct_prior_beta.m` is an optional MTEX comparison path using the CTF and orientation JSON exported by the application. MATLAB/MTEX is not a runtime requirement for normal Python processing. No MATLAB/MTEX installation or actual comparison run was available during this implementation; no MTEX agreement is claimed. No real EBSD experiment is included in the public source tree. Full-size performance, instrument-frame correction, multi-parent reconstruction accuracy, noise robustness and independent MTEX comparison remain unverified; see [`V3_VALIDATION_REPORT.md`](V3_VALIDATION_REPORT.md).
+
+The GUI, pipeline and all standard analysis paths are Python; Windows supplies Tkinter/Tcl. MATLAB/MTEX is an optional external scientific reference, not a dependency installed by the application.
 
 ## License
 
-No project-wide open-source license has been selected. The standalone MTEX example is derived from the official MTEX TiBetaReconstruction example and is accompanied by its GPL-2.0 license notice. Third-party Python packages are installed from their upstream distributions; see their respective project pages and license files.
+No project-wide open-source license has been selected. The MTEX example carries its separate GPL-2.0 notice. Third-party Python packages retain their upstream licenses.

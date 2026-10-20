@@ -19,6 +19,10 @@ from .storage import (Cancelled, atomic_json, cancellation, check_cancelled, dig
                       recover_transactions, validate_receipt, _publish, long_path)
 from .texture import texture_preview
 from .v2 import run_v2
+from .texture_v3 import analyze_texture
+from .schmid import analyze_schmid
+from .alpha_variants import analyze_alpha_variants
+from .prior_beta import reconstruct_prior_beta
 
 def now(): return datetime.now().astimezone().isoformat()
 
@@ -104,7 +108,7 @@ def _mark(mp, m, stage):
     check_cancelled()
 
 def _failed(m, exc):
-    science=set(m.get('checkpoints',{}))&{'v1','v2','maps','render','texture','mtex'}
+    science=set(m.get('checkpoints',{}))&{'v1','v2','maps','render','texture','mtex','v3_texture','v3_schmid','v3_variants','v3_prior_beta'}
     m.update(status='cancelled' if isinstance(exc,Cancelled) else ('partial' if science else 'failed'),
         error=f'{type(exc).__name__}: {exc}',completed_at=now())
 
@@ -177,7 +181,10 @@ def execute_analysis(run,m,source=None):
                 if not metadata.exists():atomic_json(metadata,m['source'])
                 _mark(mp,m,'v1')
                 fp=ctx.cache_dir/'features.h5'
-                if opts['analysis']=='v1v2':
+                analysis_mode=opts['analysis']
+                needs_v2=(analysis_mode in ('v1v2','v3_schmid','v3_variants','v3_prior_beta') or
+                          (analysis_mode=='v3_texture' and opts.get('v3_weighting','area')=='grain'))
+                if needs_v2:
                     if not _receipt(ctx.cache_dir/'v2','ebsd_autoplot.v2.run_v2'):
                         run_v2(fp,ctx.cache_dir/'v2',roi=opts['roi'],threshold=opts['grain_threshold'],min_size=opts['min_grain_pixels'])
                     _mark(mp,m,'v2')
@@ -190,6 +197,30 @@ def execute_analysis(run,m,source=None):
                         source=source or _source_for(m)
                         export_roi_ctf(source,ctx.cache_dir/'mtex'/'verification_roi.ctf',*opts['mtex_roi'])
                     _mark(mp,m,'mtex')
+                v3_mode=analysis_mode.removeprefix('v3_') if analysis_mode.startswith('v3_') else None
+                if v3_mode:
+                    v3root=ctx.cache_dir/'v3'/v3_mode/'results'
+                    v3root.mkdir(parents=True,exist_ok=True)
+                    operations={'texture':'ebsd_autoplot.texture_v3.analyze_texture',
+                        'schmid':'ebsd_autoplot.schmid.analyze_schmid',
+                        'variants':'ebsd_autoplot.alpha_variants.analyze_alpha_variants',
+                        'prior_beta':'ebsd_autoplot.prior_beta.reconstruct_prior_beta'}
+                    if not _receipt(v3root,operations[v3_mode]):
+                        if v3_mode=='texture':
+                            analyze_texture(fp,v3root,weighting=opts.get('v3_weighting','area'),
+                                bandwidth_deg=opts.get('v3_bandwidth',10.0),grid_step_deg=opts.get('v3_grid_step',15.0),
+                                max_samples=opts.get('v3_max_samples',3000),seed=opts.get('v3_seed',0),formats=opts['formats'])
+                        elif v3_mode=='schmid':
+                            analyze_schmid(fp,v3root,load_axis=opts.get('v3_load_axis',(0,0,1)),
+                                roi=opts.get('roi'),block_rows=opts.get('batch',32),formats=opts['formats'])
+                        elif v3_mode=='variants':
+                            analyze_alpha_variants(fp,ctx.cache_dir/'v2',v3root,formats=opts['formats'])
+                        else:
+                            variants=ctx.cache_dir/'v3'/'variants'/'results'
+                            if not _receipt(variants,operations['variants']):
+                                analyze_alpha_variants(fp,ctx.cache_dir/'v2',variants,formats=opts['formats'])
+                            reconstruct_prior_beta(fp,ctx.cache_dir/'v2',variants,v3root,formats=opts['formats'])
+                    _mark(mp,m,'v3_'+v3_mode)
                 if not opts['no_render']:
                     render_only(fp,opts,ctx.render_dir,allow_partial=True)
                     _mark(mp,m,'render')
@@ -289,7 +320,7 @@ def recover_interrupted(root):
         if token in ('access-denied','alive') or (token is not None and token==who.get('token')):continue
         try:
             with file_lock(mp.parent/'.run.lock',timeout=.01):
-                science=set(m.get('checkpoints',{}))&{'v1','v2','maps','render','texture','mtex'}
+                science=set(m.get('checkpoints',{}))&{'v1','v2','maps','render','texture','mtex','v3_texture','v3_schmid','v3_variants','v3_prior_beta'}
                 m.update(status='partial' if science else 'failed',interrupted=True,
                     error='Owner process ended before task completion',completed_at=now())
                 write_run_manifest(mp,m);recovered.append(str(mp))
