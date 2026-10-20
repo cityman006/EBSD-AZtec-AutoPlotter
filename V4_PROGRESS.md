@@ -1,4 +1,4 @@
-# V4 progress and verification — 4.0.0.dev1
+# V4 progress and verification — 4.0.0.dev2
 
 This development increment has runnable implementations in M1–M4, with stacked
 Draft PRs. **The complete attachment acceptance list is not yet fulfilled.**
@@ -27,13 +27,16 @@ the final delivery reports its observed status separately from local results.
 
 ## Implemented paths
 
-- M1: optional PySide6 Studio, collapsible docks/themes, persisted bilingual
-  navigation, import worker, serial batch child processes, frozen settings,
+- M1: optional PySide6 Studio, collapsible docks/themes, full bilingual
+  presentation, import worker, bounded parallel child processes, frozen settings,
   montage grouping, failure continuation, cancel/verified resume, queue/logs,
   cache history, font/format/map/layout controls, native publication exports.
   The integrated viewer adds lazy power-of-two disk tiles (≤512² per read),
   a bounded base preview, stale-result guards, original coordinates/ROI and
   measured dy/dx. Tk and V1/V2/V3 remain available.
+  Version dev2 adds source-isolated 1/2/4 linked panels and total active-memory
+  admission for 1–8 processes (default 1), source-prefixed logs and all-child
+  cancellation. Windows transient sharing locks retry atomically for at most 2 s.
 - M2: phase-specific RX **proxy**, GOS/KAM/GROD QC and threshold sensitivity,
   physical anisotropic grain descriptors/CDF, Euler scalars/RGB, inverse-pole
   direction statistics, numeric per-phase and per-sample tables. Correct Haar
@@ -98,8 +101,10 @@ PDF was visually checked. Private outputs/evidence are under `.local/`:
 
 ## Remaining acceptance gaps
 
-- Full bilingual control translation, linked simultaneous viewers, progress
-  percentages, configurable parallel analyses, actual 4K/multi-monitor QA.
+- Fine-grained progress percentages and actual physical 4K/multi-monitor QA.
+  Complete Qt bilingual presentation, linked simultaneous viewers and bounded
+  configurable parallel analyses are now implemented; raw technical logs and
+  scientific identifiers intentionally remain verbatim.
 - Full large-map grain/texture analysis, EDS montage stitching and GUI landmark
   registration editor; complete publication-template/interactive styling suite.
 - Independent MTEX/AZtec agreement, RX metallurgy calibration, instrument frame

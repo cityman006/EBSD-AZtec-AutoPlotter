@@ -1,5 +1,20 @@
 # Changelog
 
+## 4.0.0.dev2 — bilingual linked workbench and parallel analysis
+
+- Complete English/Chinese controls, help, tabs, headers, dialogs, dynamic
+  research status and slicing previews; preserve values and canonical options.
+- Persistent 1/2/4 map panels with source-isolated camera/cursor/ROI links,
+  retained overlays across map/layout changes and explicit unavailable fields.
+- Configurable 1–8 isolated analysis children with summed estimated-memory
+  admission, bounded native thread pools, owner-attributed logs and all-child
+  cancellation/recovery. Default remains one process.
+- Bounded Windows control-file sharing retry keeps old/new JSON atomic.
+- Bind patch previews/selections to their source cache; switching sources or
+  replacing a cache requires a new preview. Handle UTF-8 log chunks correctly.
+- Add actual Qt/parallel-worker interaction, cancellation, state-freezing and
+  tile-shutdown checks. Scientific algorithms and validation limits unchanged.
+
 ## 4.0.0.dev1 — M4 research integration
 
 - GUI Dataset/GNN/Mechanics/Diffusion workflows, isolated workers, label gates,

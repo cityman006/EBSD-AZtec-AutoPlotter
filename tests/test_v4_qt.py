@@ -74,7 +74,18 @@ def test_crashed_zero_exit_is_not_success_and_ddpm_steps_match_backend(tmp_path)
     win=Studio();win.preferences=tmp_path/'settings.json'
     win.read_log=lambda:None;win.refresh_queue=lambda:None;win.history=lambda:None
     win.finished(0,C.QProcess.ExitStatus.CrashExit)
-    assert win.task_status.text().startswith('FAILED')
+    assert win.task_status.property('status_code')=='FAILED'
     assert 'SUCCESS' not in win.log.toPlainText()
     assert win.diff_steps.minimum()==4
     win.close();app.processEvents()
+
+
+def test_tile_worker_ignores_destroyed_gui_signal_at_shutdown(tmp_path):
+    from shiboken6 import delete
+    from gui_qt import TileTask
+    from test_v4_multiview_gui import cache_file
+    app=W.QApplication.instance() or W.QApplication([])
+    path=tmp_path/'features.h5';cache_file(path)
+    task=TileTask(path,'BC',1,[(0,0,4,4)],0,lambda:True)
+    delete(task.signals)
+    task.run()  # No GUI remains to receive this obsolete tile result.

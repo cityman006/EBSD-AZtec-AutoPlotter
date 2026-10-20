@@ -44,7 +44,7 @@ def test_qt_research_process_runs_without_raw_cache(tmp_path):
     assert len(manifests)==1
     manifest=json.loads(manifests[0].read_text())
     assert manifest['status']=='success' and manifest['result']['synthetic_demo']
-    assert win.task_status.text()=='SUCCESS' and not errors
+    assert win.task_status.property('status_code')=='SUCCESS' and not errors
     win.close();app.processEvents()
 
 
@@ -60,6 +60,6 @@ def test_pause_keeps_gui_responsive_and_cancel_is_not_success(tmp_path):
     win.cancel();pump(app,lambda:win.process.state()==C.QProcess.ProcessState.NotRunning)
     app.processEvents()
     manifest=json.loads(next(tmp_path.glob('studio_runs/*/studio_manifest.json')).read_text())
-    assert manifest['status']=='cancelled' and win.task_status.text()=='CANCELLED'
+    assert manifest['status']=='cancelled' and win.task_status.property('status_code')=='CANCELLED'
     assert not errors
     win.close();app.processEvents()

@@ -1,6 +1,6 @@
 # EBSD-AZtec AutoPlotter V4 Materials Intelligence Studio
 
-Windows Python research software for Oxford Instruments AZtec H5OINA/HDF5 EBSD maps. Current development version: **4.0.0.dev1**. V4 adds an optional PySide6 Studio while retaining the Tk GUI and V1/V2/V3 pipelines. This is research development, not a scientifically certified release or standalone exe.
+Windows Python research software for Oxford Instruments AZtec H5OINA/HDF5 EBSD maps. Current development version: **4.0.0.dev2**. V4 adds an optional PySide6 Studio while retaining the Tk GUI and V1/V2/V3 pipelines. This is research development, not a scientifically certified release or standalone exe.
 
 ## Start V4 on Windows
 
@@ -16,7 +16,7 @@ GNN/ridge/DDPM research baselines run on CPU without Torch or CUDA.
 
 | Stage | Runnable paths | Status |
 |---|---|---|
-| M1 | Qt docks/themes, asynchronous batches, montage discovery, immutable snapshots, cancellation/recovery, cached map viewer and native publication export | Local/CI software tests; full bilingual controls, multi-monitor and configurable analysis concurrency pending |
+| M1 | Complete English/Chinese Qt presentation, linked 1/2/4 maps, bounded 1–8 analysis processes, immutable snapshots, cancellation/recovery, cached tiles and native publication export | Local software tests; actual physical 4K/multi-monitor validation pending |
 | M2 | Phase-specific RX proxy/QC, grain morphology/weighted CDF, Euler scalars/RGB, PF/ODF and inverse-pole statistics, numeric CSV summaries | Synthetic and real-data workflow checks; RX metallurgy and MTEX/AZtec comparison pending |
 | M3 | Lossless grid/pixel/µm patches, masks, EDS windows/timing/registration, grain graphs, grouped Dataset/DataLoader | Exact-pixel tests and real H5OINA checks; EDS montage stitching and GUI landmark editing pending |
 | M4 | Independent mechanics-label import, grouped GNN/ridge learning, held-out metrics, checkpoint inference, conditional numerical DDPM | Research baselines; no real mechanics training or material inverse-design validation |
