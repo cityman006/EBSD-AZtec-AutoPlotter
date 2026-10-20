@@ -94,3 +94,14 @@ def test_split_utf8_log_bytes_and_localized_dynamic_progress(tmp_path):
     assert win.task_status.text()=='成功' and win.task_status.property('status_code')=='SUCCESS'
     assert not errors
     win.close();app.processEvents()
+
+
+def test_gui_child_overrides_inherited_non_utf8_encoding(tmp_path,monkeypatch):
+    app,win,errors=window(tmp_path)
+    monkeypatch.setenv('PYTHONIOENCODING','gbk')
+    monkeypatch.setenv('PYTHONUTF8','0')
+    win.launch(['-u','-c',"print('中文路径：试样甲')"])
+    pump(app,lambda:win.process.state()==C.QProcess.ProcessState.NotRunning,timeout=30);app.processEvents()
+    assert '中文路径：试样甲' in win.log.toPlainText()
+    assert '\ufffd' not in win.log.toPlainText() and not errors
+    win.close();app.processEvents()
