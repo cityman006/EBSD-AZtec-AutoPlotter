@@ -14,6 +14,7 @@ from matplotlib import pyplot as plt
 from matplotlib.colors import BoundaryNorm, ListedColormap
 import numpy as np
 from PIL import Image
+from . import __version__
 
 from .euler_maps import EULER_DISPLAY_CONVENTION, quaternion_euler_maps
 from .grain_statistics import (attach_v2_grain_metadata, grain_size_cdf,
@@ -141,6 +142,7 @@ def analyze_quantitative(features_file, v2_dir, outdir, *, formats=("png",),
         kam_valid = f["kam_valid"][sl] > 0
         q = np.moveaxis(f["features"][0:4, sl[0], sl[1]], 0, -1)
         grod = g["GROD_deg"][...]
+        v2_threshold=float(g.attrs['threshold_deg']) if 'threshold_deg' in g.attrs else None
     dx, dy = float(metadata["x_step_um"]), float(metadata["y_step_um"])
     specs = metadata["phase_specs"]
     if not specs: raise ValueError("Phase metadata is required for quantitative analysis")
@@ -169,6 +171,8 @@ def analyze_quantitative(features_file, v2_dir, outdir, *, formats=("png",),
         row["RX_confidence_status"] = "uncalibrated_QC_grade_only; no probability/confidence estimate"
         row["centroid_x_um"] += x * dx; row["centroid_y_um"] += y * dy
     config = {"thresholds": thresholds or {str(pid): RxThresholds() for pid in specs},
+              "KAM_algorithm":metadata.get('kam_convention','unavailable'),
+              "grain_threshold_deg":v2_threshold,
               "min_pixels": min_pixels, "exclude_edge": exclude_edge,
               "sensitivity_scales": list(sensitivity_scales), "roi_xywh": roi,
               "odf_file": str(odf_file) if odf_file else None,
@@ -200,7 +204,13 @@ def analyze_quantitative(features_file, v2_dir, outdir, *, formats=("png",),
             except (ImportError, ValueError) as exc:
                 ipf = {"IPF_status": "unavailable_" + type(exc).__name__, "IPF_reason": str(exc)}
         row = {"run_id": run_id, "configuration_hash": config_hash,
-            "software_version": "4.0-research", "scan_id": metadata.get("scan_path", "cache_ROI"),
+            "sample_id":hashlib.sha256((str(metadata.get('source',''))+'|'+str(metadata.get('scan_path',''))).encode()).hexdigest()[:20],
+            "source_name":metadata.get('source_name',Path(str(metadata.get('source','unknown'))).name),
+            "source_run_id":Path(features_file).parent.parent.name if Path(features_file).parent.name=='analysis_cache' else 'unarchived_cache',
+            "scope":"whole_scan" if roi==(0,0,full_w,full_h) else "ROI",
+            "roi_xywh":json.dumps(list(roi)),"KAM_algorithm":metadata.get('kam_convention','unavailable'),
+            "grain_threshold_deg":v2_threshold,"minimum_grain_pixels":min_pixels,
+            "software_version": __version__, "scan_id": metadata.get("scan_path", "cache_ROI"),
             "phase_id": pid, "phase_name": spec.get("name", str(pid)),
             "Nx": full_w, "Ny": full_h, "ROI_Nx": w, "ROI_Ny": h, "dx_um": dx, "dy_um": dy,
             "ROI_x_min_um": x*dx, "ROI_x_max_um": (x+w)*dx, "ROI_y_min_um": y*dy, "ROI_y_max_um": (y+h)*dy,

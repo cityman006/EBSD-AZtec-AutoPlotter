@@ -1,12 +1,38 @@
-# EBSD-AZtec AutoPlotter V1+V2+V3
+# EBSD-AZtec AutoPlotter V4 Materials Intelligence Studio
 
-A Windows Python/Tkinter research application for processing Oxford Instruments AZtec H5OINA/HDF5 EBSD maps. The repository does not declare a semantic version or ship a compiled installer; V3 is an opt-in research feature set on the `feature/advanced-crystallography-v3` branch.
+Windows Python research software for Oxford Instruments AZtec H5OINA/HDF5 EBSD maps. Current development version: **4.0.0.dev3**. V4 adds an optional PySide6 Studio while retaining the Tk GUI and V1/V2/V3 pipelines. This is research development, not a scientifically certified release or standalone exe.
+
+## Start V4 on Windows
+
+Install Python 3.12 x64, run `INSTALL_QT_WINDOWS.cmd`, then double-click
+`START_QT_WINDOWS.cmd`. Both use the environment in the current project folder;
+no original computer drive is hard-coded. Tk fallback: `START_WINDOWS.cmd`.
+When copying to another computer, recreate `.venv`; do not copy it as a portable
+runtime. Qt dependencies are optional (`requirements-gui.txt`). Torch CPU/GPU
+is optional for Dataset/DataLoader adapters (`requirements-ai.txt`); NumPy
+GNN/ridge/DDPM research baselines run on CPU without Torch or CUDA.
+
+## V4 implemented paths and current limits
+
+| Stage | Runnable paths | Status |
+|---|---|---|
+| M1 | Complete English/Chinese Qt presentation, linked 1/2/4 maps, bounded 1–8 analysis processes, immutable snapshots, cancellation/recovery, cached tiles and native publication export | Local software tests; actual physical 4K/multi-monitor validation pending |
+| M2 | Phase-specific RX proxy/QC, grain morphology/weighted CDF, Euler scalars/RGB, PF/ODF and inverse-pole statistics, numeric CSV summaries | Synthetic and real-data workflow checks; RX metallurgy and MTEX/AZtec comparison pending |
+| M3 | Lossless patches, source-verified EDS row montage, native-window landmark editor/JSON projects, grain graphs, grouped Dataset/DataLoader | Exact-pixel/Qt tests and real intact H5OINA checks; real row-shard acquisitions and independent landmark accuracy still unverified |
+| M4 | Independent mechanics-label import, grouped GNN/ridge learning, held-out metrics, checkpoint inference, conditional numerical DDPM | Research baselines; no real mechanics training or material inverse-design validation |
+
+See [Chinese V4 usage](docs/V4_USER_GUIDE.md), [progress](V4_PROGRESS.md),
+[plan](V4_PLAN.md) and module evidence in [M1](docs/V4_M1.md),
+[M2](docs/V4_M2.md), [M3](docs/V4_M3.md), [M4](docs/V4_M4.md).
+Drafts are stacked V3 → M1 → M2 → M3 → M4; none are merged automatically.
+For EDS montage layouts and the explicit registration workflow, see
+[EDS montage and landmarks](docs/V4_EDS_MONTAGE_REGISTRATION.md).
 
 ## Features
 
 - **V1 plotting:** row-blocked scan reads, IPF X/Y/Z, phase, KAM, band contrast, MAD, pattern quality, and overview layouts. Input Euler units follow the H5OINA metadata contract; the cache records the input unit.
 - **V2 analysis:** optional ROI grain segmentation, grain summaries, boundary/GOS/GROD-style fields and grain adjacency graph. V2 results remain exploratory.
-- **V3 texture:** pole figures for HCP `{0001}`, `{10-10}`, `{11-20}` and BCC `{100}`, `{110}`, `{111}` families; PF intensity is MUD (mean valid-bin density = 1). The numeric ODF is a symmetry-summed Gaussian kernel on a Bunge ZXZ SO(3) grid, normalized with the Haar measure and stored in HDF5. Pixel-area and equal-grain weighting are explicit choices. The plots are not substitutes for numeric ODF data.
+- **V3/V4 texture:** pole figures for HCP `{0001}`, `{10-10}`, `{11-20}` and BCC `{100}`, `{110}`, `{111}` families; PF intensity uses exact disk-cell areas, with area-weighted mean MUD=1. The numeric ODF is a symmetry-summed Gaussian kernel on a Bunge ZXZ SO(3) grid, normalized with Haar probability measure and stored in HDF5. Pixel-area and equal-grain weighting are explicit. V4 corrects the legacy ODF scale and PF rim bins; old numeric grids are preserved and rejected for newly versioned metrics.
 - **V3 α-Ti Schmid analysis:** basal `<a>`, prismatic `<a>`, pyramidal `<a>`, and pyramidal `<c+a>` families, derived from measured HCP lattice parameters and sample-frame loading direction. Uniaxial Schmid factor `m` is dimensionless; stress-resolved shear `τ=sᵀσn` is separately labeled in MPa. No local stress, CRSS-based activation, or “first slip” claim is inferred.
 - **V3 BOR / prior β:** constructs twelve ideal Burgers variants, fits α-grain candidates, retains unknown/ambiguous cases, and reports inferred parent coverage, OR residuals and confidence. A single α grain does not uniquely identify its parent. Inferred prior-β coverage is not a measured volume fraction. `variant_boundary_type_map` distinguishes same-parent variant boundaries, inferred parent boundaries, and unknown edges.
 - **Archive and export:** per-scan/per-run outputs, resumable checkpoints, analysis cache, independent Render Only, installed-font selection and PNG/TIFF/PDF/SVG exports are retained. V3 results are transactional additions inside the selected analysis run.

@@ -148,7 +148,8 @@ def test_qt_cancel_targets_only_active_task_and_failed_start_recovers(tmp_path):
     stale=tmp_path/'old_batch';stale.mkdir();current=tmp_path/'current.json'
     state=SimpleNamespace(busy=lambda:True,batch_run=stale,active_batch_run=None,
                           active_control=current,log=SimpleNamespace(appendPlainText=Mock()),
-                          run_button=SimpleNamespace(setEnabled=Mock()))
+                          run_button=SimpleNamespace(setEnabled=Mock()),
+                          task_status=SimpleNamespace(setText=Mock()))
     Studio.cancel(state)
     assert not (stale/'cancel.json').exists()
     assert json.loads(current.read_text())['cancel']

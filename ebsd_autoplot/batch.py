@@ -176,6 +176,10 @@ def _reports(run, data):
                     row.update(source_name=r['source_name'],sample_id=r['scan_id'],source_run_id=Path(r['run_path']).name)
                     numeric.append(row)
     if numeric:
+        comparison={(r.get('KAM_algorithm'),r.get('grain_threshold_deg'),r.get('minimum_grain_pixels')) for r in numeric}
+        missing=any(any(v in (None,'','unavailable','None') for v in settings) for settings in comparison)
+        for r in numeric:r['comparability_status']=('unavailable_missing_recorded_settings' if missing else
+            'same_recorded_algorithm_settings' if len(comparison)==1 else 'different_KAM_or_grain_settings_review_before_comparing')
         temp=run/'.Summary.csv.tmp'
         fields=list(dict.fromkeys(k for r in numeric for k in r))
         with temp.open('w',encoding='utf-8-sig',newline='') as f:

@@ -27,6 +27,8 @@ def _render_only(cache,output_root=None,style=None,formats=('png',)):
 
 def parser():
     p=argparse.ArgumentParser(description='EBSD AutoPlotter | per-scan archives, atomic artifacts, verified Resume')
+    from . import __version__
+    p.add_argument('--version',action='version',version=__version__)
     p.add_argument('input',nargs='?',help='Raw H5/H5OINA or montage directory; all discovered scans are isolated automatically')
     p.add_argument('--output-root',help='Explicit total output root')
     p.add_argument('--out',help='Legacy alias for --output-root; never reuses a previous run directory')

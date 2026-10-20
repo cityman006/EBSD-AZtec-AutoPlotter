@@ -104,9 +104,11 @@ cancellation, private temporary buffers, actual Qt clicks and JSON round trips.
 Archive actions explicitly prohibit calling raw EBSD analysis and verify raw,
 cache and previous-result bytes remain unchanged.
 
-Fresh integrated M4 Windows regression: **306 passed, 2 upstream orix/diffpy
-deprecation warnings, 124.93 s**, using `python -m pytest tests -q
---basetemp=.local/test-v4-eds-registration-full`. Focused backend checks:
+Fresh integrated M4 Windows regression: **307 passed, 2 upstream orix/diffpy
+deprecation warnings, 132.41 s**, using `python -m pytest tests -q
+--basetemp=.local/test-v4-eds-registration-final-paths`. This includes an
+equivalent Windows normal/extended-path regression that first failed and was
+fixed without weakening source-change detection. Focused backend checks:
 **53 passed, 6.38 s**; local/global Header ingestion and preservation checks:
 **49 passed, 9.34 s**; actual Qt editor checks including interpreter shutdown:
 **20 passed, 86.29 s**. These sets overlap and are not additive.

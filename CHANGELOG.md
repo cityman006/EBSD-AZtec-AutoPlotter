@@ -1,5 +1,50 @@
 # Changelog
 
+## 4.0.0.dev3 — EDS row montage and landmark registration
+
+- Stitch native EDS windows/timing using validated source scan and row ranges;
+  support preserved-global and proven Compact_v1 local Header dimensions.
+- Preserve complete native values/dtypes, cps/counts units and timing; missing
+  EDS parts stay explicitly unavailable. Reject conflicting units, malformed
+  grids and accumulated coordinate drift using actual pointwise comparisons.
+- Add bilingual native-pixel landmark preview/click/table editing, affine/QC,
+  source-bound atomic JSON save/load and explicit Apply to EDS/patch exports.
+- Use bounded previews/coordinate blocks and owned temporary-backed buffers;
+  safely cancel/join preview threads on dialog, application and interpreter exit.
+- Keep raw/cache/old result bytes unchanged and publish new archived outputs.
+  Fit residuals are not independent registration or chemical validation.
+- Accept equivalent normal/extended Windows paths in landmark project checks.
+
+## 4.0.0.dev2 — bilingual linked workbench and parallel analysis
+
+- Complete English/Chinese controls, help, tabs, headers, dialogs, dynamic
+  research status and slicing previews; preserve values and canonical options.
+- Persistent 1/2/4 map panels with source-isolated camera/cursor/ROI links,
+  retained overlays across map/layout changes and explicit unavailable fields.
+- Configurable 1–8 isolated analysis children with summed estimated-memory
+  admission, bounded native thread pools, owner-attributed logs and all-child
+  cancellation/recovery. Default remains one process.
+- Bounded Windows control-file sharing retry keeps old/new JSON atomic.
+- Bind patch previews/selections to their source cache; switching sources or
+  replacing a cache requires a new preview. Handle UTF-8 log chunks correctly.
+- Force UTF-8 child streams under inherited legacy Windows encodings; preserve
+  Chinese event paths/reports. Fit linked maps after initial window layout.
+- Add actual Qt/parallel-worker interaction, cancellation, state-freezing and
+  tile-shutdown checks. Scientific algorithms and validation limits unchanged.
+
+## 4.0.0.dev1 — M4 research integration
+
+- GUI Dataset/GNN/Mechanics/Diffusion workflows, isolated workers, label gates,
+  pause/cancel state and durable transaction-verified weight checkpoints.
+- Explicit mechanics units/frame/source pairing; grouped CPU GNN and ridge,
+  training-only scalers, held-out metrics, schema-checked masked inference.
+- Learned numerical conditional DDPM, real HCP/BCC phase-aware symmetry
+  representatives and requested/actual phase-fraction QC; research-only limits.
+- Lazy multilevel disk tiles, bounded hyperslabs and original physical aspect.
+- Corrected weighted neighbour means for sub-micrometre total boundary weights;
+  added regression and crash-status checks. No scientific certification claimed.
+- Chinese operational guide; versioned provenance and summary comparability QC.
+
 ## V4 research development M3
 
 - Lossless original-grid HDF5 patches, deterministic uneven grids, pixel/µm

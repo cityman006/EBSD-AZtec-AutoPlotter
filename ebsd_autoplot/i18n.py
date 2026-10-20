@@ -11,7 +11,7 @@ import ast
 from contextlib import contextmanager
 
 CATALOG = {
-    "KAM unavailable": "KAM 不可用",
+    "Source cache changed. Preview the current patch settings before export.": "源缓存已改变。导出前请重新预览当前切片设置。",
     "EBSD-AZtec AutoPlotter V4 — Materials Intelligence Studio": "EBSD-AZtec AutoPlotter V4 — 材料智能分析工作室",
     "Phase": "相位", "Views": "视图数量", "Link pan / zoom / cursor / ROI": "联动平移 / 缩放 / 光标 / ROI",
     "active": "当前", "Source changed; reload cache": "源缓存已改变，请重新加载",

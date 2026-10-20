@@ -139,7 +139,8 @@ def build_graph(features_file, v2_dir, outdir, *, source_id=None, preview=True):
                             node_feature_names=np.asarray(names), orientation_xyzw=orientations,
                             edge_index=edge_index, edge_attr=edge_attr, edge_feature_mask=np.isfinite(edge_attr),
                             edge_feature_names=np.asarray(["shared_boundary_um", "shared_pixel_edges", "disorientation_deg", "centroid_distance_um", "interphase"]),
-                            boundary_censored=np.asarray(border), source_id=np.asarray(source_id))
+                            boundary_censored=np.asarray(border), source_id=np.asarray(source_id),
+                            metadata_json=np.asarray(json.dumps({'phase_schema':meta['phase_specs']})))
         qc = {"schema_version": 1, "nodes": len(gids), "undirected_edges": len(edge_lengths),
               "cache_pair_identity": 'verified_sha256' if pair_hash else 'unverified_legacy_no_source_hash',
               "segmentation_validation": 'exploratory_external_validation_pending',
@@ -151,6 +152,7 @@ def build_graph(features_file, v2_dir, outdir, *, source_id=None, preview=True):
               "nonfinite_edge_angles": int(np.count_nonzero(~np.isfinite(edge_attr[:, 2]))),
               "scientific_status": "2D experimental grain adjacency; no mechanical prediction or 3D topology claimed"}
         manifest = {"schema_version": 1, "source_id": source_id, "parent_id": source_id,
+                    "phase_schema":meta['phase_specs'],
                     "roi_xywh": [x, y, w, h], "step_um_xy": [dx, dy], "node_feature_names": names,
                     "orientation_convention": "symmetry-aligned mean quaternion xyzw, crystal-to-sample",
                     "graph": "graph.npz", "qc": qc,
