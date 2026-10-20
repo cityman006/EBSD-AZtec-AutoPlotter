@@ -36,12 +36,12 @@ def validate_landmark_config(config, cache_path=None, source_shape=None):
     import copy
     import os
     import h5py
-    from pathlib import Path
+    from .storage import canonical_path
     if not isinstance(config, dict) or type(config.get("schema_version")) is not int or config["schema_version"] != 1:
         raise ValueError("Unsupported landmark registration schema")
     result = copy.deepcopy(config)
     def same_path(left, right):
-        return os.path.normcase(str(Path(left).resolve())) == os.path.normcase(str(Path(right).resolve()))
+        return os.path.normcase(str(canonical_path(left))) == os.path.normcase(str(canonical_path(right)))
     def checked_stamp(record, role):
         if not isinstance(record, dict) or not {"path", "size", "mtime_ns"} <= record.keys():
             raise ValueError(f"Missing {role} registration file stamp")

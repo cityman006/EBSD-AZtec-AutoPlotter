@@ -45,6 +45,16 @@ def test_project_rejects_changed_files_and_different_cache(tmp_path):
         validate_landmark_config(cfg,cache_path=cache)
 
 
+@pytest.mark.skipif(os.name!='nt',reason='Windows extended-length path spelling')
+def test_same_source_and_target_accept_equivalent_windows_long_paths(tmp_path):
+    from ebsd_autoplot.storage import long_path
+    cache,source,cfg=project(tmp_path)
+    cfg['source_path']=str(long_path(source))
+    validated=validate_landmark_config(cfg,cache_path=long_path(cache),source_shape=(4,5))
+    assert validated['source_path']==file_stamp(source)['path']
+    np.testing.assert_allclose(validated['matrix'],[[1,0,1],[0,1,2],[0,0,1]],atol=1e-12)
+
+
 @pytest.mark.parametrize('change', ['out_of_bounds','nan','collinear','wrong_matrix','singular','wrong_shape','wrong_schema'])
 def test_invalid_or_tampered_landmarks_cannot_be_applied(tmp_path,change):
     cache,_,cfg=project(tmp_path)
