@@ -159,6 +159,7 @@ CATALOG = {
         "{count} 个几何切片 | {width} × {height} 像素 | {width_um:.3f} × {height_um:.3f} µm。导出时将保存准确的标定比例。",
     "Research GNN epoch {epoch}/{total}: validation MSE {loss}": "研究型 GNN 第 {epoch}/{total} 轮：验证 MSE {loss}",
     "DDPM epoch {epoch}/{total}: noise MSE {loss}; validation {validation}": "DDPM 第 {epoch}/{total} 轮：噪声 MSE {loss}；验证 {validation}",
+    'Source cache changed. Preview the current patch settings before export.': '源缓存已改变。导出前请重新预览当前切片设置。',
 }
 
 ALIASES = {
