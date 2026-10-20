@@ -14,6 +14,15 @@ GNN/ridge/DDPM research baselines run on CPU without Torch or CUDA.
 
 ## V4 implemented paths and current limits
 
+The Qt Studio uses a context-aware parameter panel: each of the 12 workspace
+sections has its own scrollable page, and navigation switches the map/workspace
+view and its matching controls together. Batch settings, slicing, EDS, research,
+publication, history and settings controls no longer share a visible parameter
+form. Reusable choices (including the 3 × 5 slicing layout, export font/layout,
+output root, language and theme) persist in `config/studio_preferences.json`.
+When a batch starts, its input paths and parameter values are captured in the
+batch manifest; changing pages or editing controls cannot change that run.
+
 | Stage | Runnable paths | Status |
 |---|---|---|
 | M1 | Complete English/Chinese Qt presentation, linked 1/2/4 maps, bounded 1–8 analysis processes, immutable snapshots, cancellation/recovery, cached tiles and native publication export | Local software tests; actual physical 4K/multi-monitor validation pending |

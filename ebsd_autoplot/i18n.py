@@ -29,6 +29,12 @@ CATALOG = {
     "Analysis": "分析模式", "ROI pixels": "ROI 像素范围", "Load axis X Y Z": "加载轴 X Y Z",
     "Block rows": "每块处理行数", "Memory budget": "内存预算", "ODF weighting": "ODF 权重",
     "Parallel analyses": "并行分析数",
+    "Grain misorientation threshold": "晶粒取向差阈值", "Minimum grain size (pixels)": "最小晶粒尺寸（像素）",
+    "Grain analysis mode": "晶粒分析模式", "Analysis module": "分析模块",
+    "Scan: {width} × {height} px | step: {xstep:g} × {ystep:g} µm | field: {xsize:g} × {ysize:g} µm":
+        "扫描：{width} × {height} 像素 | 步长：{xstep:g} × {ystep:g} µm | 物理尺寸：{xsize:g} × {ysize:g} µm",
+    "Load an EBSD cache to inspect its dimensions and calibrated physical size.": "载入 EBSD 缓存以查看扫描尺寸与标定后的物理尺寸。",
+    "Scan dimensions unavailable: {error}": "无法读取扫描尺寸：{error}",
     "Maximum simultaneous analysis processes. The total estimated memory of active jobs must fit the memory budget; this is not an operating-system hard limit.":
         "同时运行的分析进程上限。运行任务的预计内存总量必须符合内存预算；该预算不是操作系统级的硬性内存限制。",
     "Parallel analyses are bounded by process count and total estimated memory. Failures do not stop other samples; the batch snapshot is frozen.":
@@ -37,6 +43,9 @@ CATALOG = {
     "Selected cache has no calibrated orientation IPF data": "所选缓存不含已校准的取向 IPF 数据",
     "Export font": "导出字体", "Formats": "导出格式", "Maps": "图谱", "Panel layout": "拼图布局",
     "Output root": "输出根目录", "Choose output": "选择输出目录", "Run batch": "运行批量分析",
+    "Output": "输出目录", "EDS block rows": "EDS 分块行数",
+    "Run crystallography": "运行晶体学分析", "Run grain analysis": "运行晶粒分析",
+    "Import folder / montage": "导入文件夹 / Montage",
     "Cancel task": "取消任务", "Pause / Resume cached action": "暂停 / 继续缓存任务",
     "Resume batch": "恢复批次", "Render Only": "仅使用缓存重绘", "Refresh history": "刷新历史",
     "RX / Euler / Grain Size (cache)": "再结晶代理 / Euler 角 / 晶粒尺寸（缓存）",
