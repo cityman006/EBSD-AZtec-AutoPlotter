@@ -90,14 +90,15 @@ def maps(features_file,outdir, dpi=220, progress=print, style=None, formats=('pn
                     raw=ds[a:a+128] if chan is None else ds[chan,a:a+128,:]
                     if name=='MAD':
                         raw=mad_degrees(raw,mad_unit)
-                        good=f['indexed'][a:a+128,:].astype(bool)&np.isfinite(raw)&(raw>=0)
-                        raw=np.where(good,raw,0)
-                    norm=np.clip((raw-vmin)/max(vmax-vmin,1e-9),0,1)
-                    pix=clut[(norm*255).astype('u1')]
+                    # Invalid numeric fields never become a real low/high colour.
+                    good=np.isfinite(raw)
+                    if name=='MAD':good&=f['indexed'][a:a+128,:].astype(bool)&(raw>=0)
                     if field=='features':
-                        good=f['indexed'][a:a+128,:].astype(bool)
-                        pix[~good]=0
-                    if name=='MAD':pix[~good]=0
+                        good&=f['indexed'][a:a+128,:].astype(bool)
+                        if name=='KAM':good&=f['kam_valid'][a:a+128,:].astype(bool)
+                    norm=np.clip((np.where(good,raw,vmin)-vmin)/max(vmax-vmin,1e-9),0,1)
+                    pix=clut[(norm*255).astype('u1')]
+                    pix[~good]=0
                     img[a:a+128]=pix
             image=Image.fromarray(img,'RGB')
             image.save(singles/(name+'.png'))
@@ -124,7 +125,8 @@ def maps(features_file,outdir, dpi=220, progress=print, style=None, formats=('pn
         for ax,name in zip(axes.ravel(),items):
             im=Image.open(singles/(name+'.png'))
             # Publication raster is never downsampled before vector embedding.
-            ax.imshow(im,interpolation='none')
+            # Native pixels are retained, with their measured physical aspect.
+            ax.imshow(im,interpolation='none',aspect=sy/sx)
             ax.set_title('MAD (°)' if name=='MAD' else name.replace('_','-'),fontsize=14,fontweight='bold')
             if name=='MAD':
                 fig.colorbar(ScalarMappable(norm=Normalize(0,2),cmap='magma'),ax=ax,

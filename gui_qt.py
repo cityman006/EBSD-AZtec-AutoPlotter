@@ -120,6 +120,7 @@ class Studio(W.QMainWindow):
         try: self.saved=json.loads(self.preferences.read_text(encoding='utf-8'))
         except (OSError,ValueError): self.saved={}
         self.paths=[]; self.records=[]; self.process=None; self.batch_run=None; self.worker=None
+        self.active_batch_run=None; self.active_control=None
         self.lang=self.saved.get('language','zh'); self.dark=self.saved.get('dark',True)
         self._build(); self.set_theme(self.dark); self.translate()
         self.timer=C.QTimer(self); self.timer.timeout.connect(self.refresh_queue); self.timer.start(600)
@@ -256,33 +257,47 @@ class Studio(W.QMainWindow):
         if self.process and self.process.state()!=C.QProcess.ProcessState.NotRunning:return
         try:
             if not self.paths:raise ValueError('Import one or more scans first')
-            self.batch_run=create_batch(self.paths,self.out.text(),self.options(),memory_budget_mb=self.budget.value())
-            self.launch(['-u','-m','ebsd_autoplot.batch',str(self.batch_run)])
+            run=create_batch(self.paths,self.out.text(),self.options(),memory_budget_mb=self.budget.value())
+            self.launch(['-u','-m','ebsd_autoplot.batch',str(run)],batch_run=run)
+            self.batch_run=run
         except Exception as exc:self.error(exc)
-    def launch(self,args):
+    def busy(self):
+        return self.process is not None and self.process.state()!=C.QProcess.ProcessState.NotRunning
+    def launch(self,args,*,batch_run=None,control=None):
         if self.process and self.process.state()!=C.QProcess.ProcessState.NotRunning:raise ValueError('A task is already running')
+        self.active_batch_run=batch_run;self.active_control=control
         self.process=C.QProcess(self); self.process.setWorkingDirectory(str(ROOT))
         self.process.setProcessChannelMode(C.QProcess.ProcessChannelMode.MergedChannels)
         env=C.QProcessEnvironment.systemEnvironment(); env.insert('PYTHONUTF8','1'); self.process.setProcessEnvironment(env)
         self.process.readyReadStandardOutput.connect(self.read_log)
-        self.process.finished.connect(self.finished); self.process.errorOccurred.connect(lambda e:self.log.appendPlainText('Process error: '+str(e)))
+        self.process.finished.connect(self.finished); self.process.errorOccurred.connect(self.process_error)
         self.process.start(sys.executable,args); self.run_button.setEnabled(False)
+    def process_error(self,error):
+        self.log.appendPlainText('Process error: '+str(error))
+        if error==C.QProcess.ProcessError.FailedToStart:
+            self.active_batch_run=None;self.active_control=None;self.run_button.setEnabled(True)
+            self.log.appendPlainText('FAILED: process could not start')
     def read_log(self):self.log.appendPlainText(bytes(self.process.readAllStandardOutput()).decode('utf-8',errors='replace').rstrip())
     def finished(self,code,status):
         self.read_log(); self.run_button.setEnabled(True)
+        self.active_batch_run=None;self.active_control=None
         self.log.appendPlainText('SUCCESS' if code==0 else f'FAILED / CANCELLED: exit {code}; inspect manifest and log')
         self.refresh_queue();self.history()
     def cancel(self):
-        if self.batch_run:request_cancel(self.batch_run);self.log.appendPlainText('Cancellation requested; preserving checkpoints')
-        if getattr(self,'control',None):atomic_json(self.control,{'cancel':True})
+        if not self.busy():return
+        if self.active_batch_run:
+            request_cancel(self.active_batch_run);self.log.appendPlainText('Cancellation requested; preserving checkpoints')
+        if self.active_control:atomic_json(self.active_control,{'cancel':True})
     def resume_batch(self):
+        if self.busy():self.error('A task is already running');return
         path,_=W.QFileDialog.getOpenFileName(self,'Select batch_manifest.json',self.out.text(),'JSON (*.json)')
         if path:
             try:
-                self.batch_run=Path(path).parent
+                run=Path(path).parent
                 # A new explicit Resume clears only the batch cancellation request.
-                (self.batch_run/'cancel.json').unlink(missing_ok=True)
-                self.launch(['-u','-m','ebsd_autoplot.batch',str(self.batch_run)])
+                (run/'cancel.json').unlink(missing_ok=True)
+                self.launch(['-u','-m','ebsd_autoplot.batch',str(run)],batch_run=run)
+                self.batch_run=run
             except Exception as exc:self.error(exc)
     def refresh_queue(self):
         if self.batch_run:
@@ -299,15 +314,16 @@ class Studio(W.QMainWindow):
             except Exception as exc:self.error(exc)
     def set_roi(self,roi):self.roi.setText(' '.join(map(str,roi)))
     def render_only(self):
+        if self.busy():self.error('A task is already running');return
         if not self.viewer.cache:self.error('Open an archived features.h5 first');return
         try:
             import uuid
-            self.control=Path(self.out.text())/'.job_control'/('qt_render_'+uuid.uuid4().hex+'.json')
-            atomic_json(self.control,{'cancel':False})
+            control=Path(self.out.text())/'.job_control'/('qt_render_'+uuid.uuid4().hex+'.json')
+            atomic_json(control,{'cancel':False})
             self.launch(['-u','-m','ebsd_autoplot','--cache',str(self.viewer.cache),'--font',self.font.currentText(),
                          '--formats',*[k for k,v in self.formats.items() if v.isChecked()],
                          '--maps',*[k for k,v in self.map_checks.items() if v.isChecked()],
-                         '--layout',*self.layout_select.currentText().split(' × '),'--control-file',str(self.control)])
+                         '--layout',*self.layout_select.currentText().split(' × '),'--control-file',str(control)],control=control)
         except Exception as exc:self.error(exc)
     def cached_action(self,action,config):
         if self.process and self.process.state()!=C.QProcess.ProcessState.NotRunning:
