@@ -12,6 +12,13 @@ except ImportError:
     raise SystemExit('PySide6 is optional. Install requirements-gui.txt or use gui.py (Tk).')
 from ebsd_autoplot.storage import atomic_json
 from ebsd_autoplot.batch import create_batch, inventory, request_cancel
+from ebsd_autoplot.linked_views import LinkedMapWorkspace
+from ebsd_autoplot.i18n import tr, bind_text, bind_combo_item, translate_widget_tree, install_qt_translator
+
+
+def ui(owner,text,**values):
+    language=getattr(owner,'language',None) or getattr(owner,'lang','en')
+    return tr(text,language() if callable(language) else language,**values)
 
 ROOT=Path(__file__).resolve().parent
 NAV=[('Dashboard','总览'),('Data Manager','数据管理'),('EBSD Maps','EBSD 地图'),
@@ -32,12 +39,15 @@ class ImportWorker(C.QThread):
 
 class MapView(W.QGraphicsView):
     coordinate=C.Signal(str); roi_selected=C.Signal(tuple)
+    navigation_changed=C.Signal(object); cursor_moved=C.Signal(object)
     def __init__(self):
         super().__init__(); self.setScene(W.QGraphicsScene(self))
         self.setDragMode(W.QGraphicsView.DragMode.ScrollHandDrag)
         self.setMouseTracking(True); self.setTransformationAnchor(W.QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.cache=None; self.field='BC'; self.width_px=0; self.height_px=0; self.start=None
-        self.roi_item=None
+        self.roi_item=None; self.cursor_items=[]; self.aspect_ratio=1.;self.user_zoom=False;self._applying_navigation=False
+        self.horizontalScrollBar().valueChanged.connect(self._navigation_updated)
+        self.verticalScrollBar().valueChanged.connect(self._navigation_updated)
     def load_cache(self, path, field='BC'):
         self.cache=Path(path); self.field=field
         with h5py.File(self.cache,'r') as f:
@@ -57,25 +67,74 @@ class MapView(W.QGraphicsView):
                 from matplotlib import colormaps
                 arr=(colormaps['viridis' if field=='KAM' else 'gray'](np.clip(values/(5 if field=='KAM' else 255),0,1))[...,:3]*255).astype('u1')
                 arr[~valid]=0
+        self.aspect_ratio=float(self.meta['y_step_um'])/float(self.meta['x_step_um'])
         self._image(arr, self.width_px, self.height_px)
     def load_image(self, path):
-        self.cache=None
+        self.cache=None;self.aspect_ratio=1.
         reader=G.QImageReader(str(path)); size=reader.size()
         self.width_px=size.width(); self.height_px=size.height()
         reader.setScaledSize(size.scaled(1600,1600,C.Qt.AspectRatioMode.KeepAspectRatio))
         img=reader.read()
         if img.isNull(): raise ValueError(reader.errorString())
         self._set_pixmap(G.QPixmap.fromImage(img),size.width(),size.height())
+    def clear_cache(self):
+        self._applying_navigation=True
+        try:
+            self.cache=None;self.width_px=0;self.height_px=0;self.roi_item=None;self.cursor_items=[]
+            self.scene().clear();self.scene().setSceneRect(C.QRectF());self.resetTransform()
+        finally:self._applying_navigation=False
     def _image(self, arr, width, height):
         arr=np.ascontiguousarray(arr,dtype='u1')
         img=G.QImage(arr.data,arr.shape[1],arr.shape[0],arr.strides[0],G.QImage.Format.Format_RGB888).copy()
         self._set_pixmap(G.QPixmap.fromImage(img),width,height)
     def _set_pixmap(self,pix,width,height):
-        self.scene().clear(); self.roi_item=None
+        self._applying_navigation=True
+        self.scene().clear(); self.roi_item=None;self.cursor_items=[];self.user_zoom=False
         item=self.scene().addPixmap(pix); item.setTransform(G.QTransform.fromScale(width/pix.width(),height/pix.height()))
-        self.scene().setSceneRect(0,0,width,height); self.fitInView(self.sceneRect(),C.Qt.AspectRatioMode.KeepAspectRatio)
+        self.scene().setSceneRect(0,0,width,height);self.fit_map()
+        self._applying_navigation=False
+    def fit_map(self):
+        if not self.width_px or not self.height_px:return
+        factor=min(max(1,self.viewport().width()-10)/self.width_px,max(1,self.viewport().height()-10)/(self.height_px*self.aspect_ratio))
+        self.resetTransform();self.scale(factor,factor*self.aspect_ratio);self.centerOn(self.width_px/2,self.height_px/2)
+    def navigation_state(self):
+        center=self.mapToScene(self.viewport().rect().center())
+        return {'center':(center.x(),center.y()),'scale':abs(self.transform().m11())}
+    def _navigation_updated(self,*_):
+        if self.width_px and not self._applying_navigation:self.navigation_changed.emit(self.navigation_state())
+    def apply_navigation(self,state):
+        if not self.width_px:return
+        center=state['center'];scale=float(state['scale'])
+        if not np.isfinite([*center,scale]).all() or scale<=0:raise ValueError('Invalid linked navigation')
+        self._applying_navigation=True
+        try:
+            self.user_zoom=True;self.resetTransform();self.scale(scale,scale*self.aspect_ratio);self.centerOn(*center)
+        finally:self._applying_navigation=False
+    def set_linked_cursor(self,position):
+        for item in self.cursor_items:self.scene().removeItem(item)
+        self.cursor_items=[]
+        if position is None:return
+        x,y=position
+        if not (0<=x<self.width_px and 0<=y<self.height_px):return
+        pen=G.QPen(G.QColor('#ffffff'));pen.setCosmetic(True);pen.setStyle(C.Qt.PenStyle.DashLine)
+        self.cursor_items=[self.scene().addLine(0,y,self.width_px,y,pen),self.scene().addLine(x,0,x,self.height_px,pen)]
+        for item in self.cursor_items:item.setZValue(10)
+    def set_linked_roi(self,roi):
+        if self.roi_item is not None:self.scene().removeItem(self.roi_item)
+        self.roi_item=None
+        if roi is None:return
+        x,y,w,h=roi
+        if min(x,y)<0 or min(w,h)<=0 or x+w>self.width_px or y+h>self.height_px:raise ValueError('ROI exceeds a selected scan')
+        pen=G.QPen(G.QColor('#f59e0b'));pen.setCosmetic(True);pen.setWidth(2)
+        self.roi_item=self.scene().addRect(x,y,w,h,pen);self.roi_item.setZValue(5)
+    def resizeEvent(self,event):
+        super().resizeEvent(event)
+        if not self.user_zoom:self.fit_map()
+        self._navigation_updated()
     def wheelEvent(self,event):
+        self.user_zoom=True
         self.scale(1.2 if event.angleDelta().y()>0 else 1/1.2,1.2 if event.angleDelta().y()>0 else 1/1.2)
+        self._navigation_updated()
     def mousePressEvent(self,event):
         if event.modifiers() & C.Qt.KeyboardModifier.ControlModifier:
             self.start=self.mapToScene(event.position().toPoint()); event.accept(); return
@@ -87,22 +146,23 @@ class MapView(W.QGraphicsView):
             x,y=max(0,int(rect.x())),max(0,int(rect.y()))
             w,h=min(self.width_px-x,int(rect.width())),min(self.height_px-y,int(rect.height()))
             if w>0 and h>0:
-                if self.roi_item is not None: self.scene().removeItem(self.roi_item)
-                pen=G.QPen(G.QColor('#f59e0b')); pen.setCosmetic(True); pen.setWidth(2)
-                self.roi_item=self.scene().addRect(x,y,w,h,pen); self.roi_selected.emit((x,y,w,h))
+                self.set_linked_roi((x,y,w,h));self.roi_selected.emit((x,y,w,h))
             event.accept(); return
         super().mouseReleaseEvent(event)
     def mouseMoveEvent(self,event):
         pos=self.mapToScene(event.position().toPoint()); x,y=int(pos.x()),int(pos.y())
         if 0<=x<self.width_px and 0<=y<self.height_px:
+            self.cursor_moved.emit((x,y))
             msg=f'X={x} Y={y}'
             if self.cache:
                 with h5py.File(self.cache,'r') as f:
                     vals=f['features'][:,y,x]
-                    msg+=f' | {x*self.meta["x_step_um"]:.3f}, {y*self.meta["y_step_um"]:.3f} µm | Phase {int(vals[4])} | BC {vals[6]:.1f}'
-                    msg+=f' | KAM {vals[5]:.3f}°' if f['kam_valid'][y,x] else ' | KAM unavailable'
+                    msg+=f' | {x*self.meta["x_step_um"]:.3f}, {y*self.meta["y_step_um"]:.3f} µm | '+ui(self,'Phase')+f' {int(vals[4])} | BC {vals[6]:.1f}'
+                    msg+=f' | KAM {vals[5]:.3f}°' if f['kam_valid'][y,x] else ' | '+ui(self,'KAM unavailable')
             self.coordinate.emit(msg)
         super().mouseMoveEvent(event)
+    def leaveEvent(self,event):
+        self.cursor_moved.emit(None);super().leaveEvent(event)
 
 
 class Studio(W.QMainWindow):
@@ -129,12 +189,20 @@ class Studio(W.QMainWindow):
         self.add_files=W.QPushButton(); self.add_files.clicked.connect(self.choose_files); toolbar.addWidget(self.add_files)
         self.add_folder=W.QPushButton(); self.add_folder.clicked.connect(self.choose_folder); toolbar.addWidget(self.add_folder)
         self.open_cache=W.QPushButton('Open cache / 打开缓存'); self.open_cache.clicked.connect(self.choose_cache); toolbar.addWidget(self.open_cache)
-        self.map_select=W.QComboBox(); self.map_select.addItems(['BC','Phase','KAM','IPF_X','IPF_Y','IPF_Z']); self.map_select.currentTextChanged.connect(self.change_map); toolbar.addWidget(self.map_select)
+        self.map_select=W.QComboBox(); self.map_select.addItems(['BC','Phase','KAM','IPF_X','IPF_Y','IPF_Z'])
+        for i in range(self.map_select.count()):
+            value=self.map_select.itemText(i);self.map_select.setItemData(i,value);bind_combo_item(self.map_select,i,value)
+        self.map_select.currentIndexChanged.connect(self.change_map);toolbar.addWidget(self.map_select)
         self.info=W.QLabel('Import H5 / H5OINA — AZtec color not calibrated'); toolbar.addWidget(self.info)
         self.nav=W.QListWidget(); self.nav.currentRowChanged.connect(self.navigate)
         left=W.QDockWidget('Workspace / 工作区',self); left.setWidget(self.nav); self.addDockWidget(C.Qt.DockWidgetArea.LeftDockWidgetArea,left)
-        self.viewer=MapView(); self.viewer.coordinate.connect(self.statusBar().showMessage); self.viewer.roi_selected.connect(self.set_roi)
-        self.setCentralWidget(self.viewer)
+        self.workspace=LinkedMapWorkspace(MapView,language=lambda:self.lang)
+        for view in self.workspace.views:view.language=lambda:self.lang
+        self.workspace.coordinate.connect(self.statusBar().showMessage);self.workspace.roi_selected.connect(self.set_roi)
+        self.workspace.active_view_changed.connect(self.sync_active_view)
+        self.workspace.field_changed.connect(lambda *_:self.sync_active_view())
+        self.workspace.load_error.connect(lambda i,error:self.log.appendPlainText(ui(self,'View {number}: {error}',number=i+1,error=error)))
+        self.setCentralWidget(self.workspace)
         self.params=W.QWidget(); form=W.QFormLayout(self.params)
         self.help=W.QLabel(); self.help.setWordWrap(True); form.addRow(self.help)
         self.mode=W.QComboBox(); self.mode.addItems(['v1','v1v2','v3_texture','v3_schmid','v3_variants','v3_prior_beta','v4_quantitative'])
@@ -143,7 +211,13 @@ class Studio(W.QMainWindow):
         self.axis=W.QLineEdit('0 0 1'); form.addRow('Load axis X Y Z',self.axis)
         self.block=W.QSpinBox(); self.block.setRange(1,1024); self.block.setValue(32); form.addRow('Block rows',self.block)
         self.budget=W.QSpinBox(); self.budget.setRange(16,65536); self.budget.setValue(2048); self.budget.setSuffix(' MB'); form.addRow('Memory budget',self.budget)
-        self.weight=W.QComboBox(); self.weight.addItems(['area','grain']); form.addRow('ODF weighting',self.weight)
+        self.concurrency=W.QSpinBox();self.concurrency.setRange(1,8);self.concurrency.setValue(int(self.saved.get('concurrency',1)))
+        self.concurrency.setToolTip('Maximum simultaneous analysis processes. The total estimated memory of active jobs must fit the memory budget; this is not an operating-system hard limit.')
+        form.addRow('Parallel analyses',self.concurrency)
+        self.weight=W.QComboBox(); self.weight.addItems(['area','grain'])
+        for i in range(self.weight.count()):
+            value=self.weight.itemText(i);self.weight.setItemData(i,value);bind_combo_item(self.weight,i,value)
+        form.addRow('ODF weighting',self.weight)
         self.font=W.QComboBox()
         from matplotlib.font_manager import fontManager
         fonts=sorted(set(x.name for x in fontManager.ttflist)); self.font.addItems(fonts)
@@ -179,12 +253,31 @@ class Studio(W.QMainWindow):
         self.bottomtabs.addTab(self.table,'Data / Queue'); self.log=W.QPlainTextEdit(); self.log.setReadOnly(True); self.log.setMaximumBlockCount(10000); self.bottomtabs.addTab(self.log,'Logs')
         self.history_list=W.QListWidget(); self.history_list.itemDoubleClicked.connect(self.open_history); self.bottomtabs.addTab(self.history_list,'History')
         bottom.setWidget(self.bottomtabs); self.addDockWidget(C.Qt.DockWidgetArea.BottomDockWidgetArea,bottom)
+        self.workspace.set_layout(int(self.saved.get('view_count',1)));self.workspace.set_linked(bool(self.saved.get('linked_views',True)))
+    @property
+    def viewer(self):
+        return self.workspace.active_view
+    def sync_active_view(self,*_):
+        selector=self.workspace.map_selectors[self.workspace.active_index]
+        value=selector.currentData() or selector.currentText();index=self.map_select.findData(value)
+        blocker=C.QSignalBlocker(self.map_select);self.map_select.setCurrentIndex(index);del blocker
     def translate(self):
-        self.nav.clear(); self.nav.addItems([x[1 if self.lang=='zh' else 0] for x in NAV]); self.nav.setCurrentRow(0)
-        self.add_files.setText('导入文件' if self.lang=='zh' else 'Import files')
-        self.add_folder.setText('导入文件夹' if self.lang=='zh' else 'Import folder')
-        self.run_button.setText('运行批量分析' if self.lang=='zh' else 'Run batch')
-        self.cancel_button.setText('取消任务' if self.lang=='zh' else 'Cancel task')
+        row=max(0,self.nav.currentRow());blocker=C.QSignalBlocker(self.nav)
+        self.nav.clear();self.nav.addItems([tr(x[0],self.lang) for x in NAV]);self.nav.setCurrentRow(row)
+        del blocker
+        self.navigate(row,activate=False)
+        for widget,text in ((self.add_files,'Import files'),(self.add_folder,'Import folder'),
+                            (self.run_button,'Run batch'),(self.cancel_button,'Cancel task')):
+            bind_text(widget,text,self.lang)
+        translate_widget_tree(self,self.lang)
+        self.workspace.retranslate()
+        install_qt_translator(W.QApplication.instance(),self.lang)
+        for row,record in enumerate(getattr(self,'_display_records',[])):
+            item=self.table.item(row,7)
+            if item is not None:item.setText(ui(self,record['status']))
+        for row in range(self.history_list.count()):
+            item=self.history_list.item(row);data=item.data(C.Qt.ItemDataRole.UserRole+1)
+            if data:item.setText(ui(self,data[0])+' | '+data[1])
     def toggle_language(self):
         self.lang='en' if self.lang=='zh' else 'zh'; self.translate(); self.save_settings()
     def set_theme(self,dark):
@@ -193,34 +286,39 @@ class Studio(W.QMainWindow):
         self.setStyleSheet(f'QWidget {{background:{bg};color:{fg};font-family:Segoe UI;font-size:12px;}} QLineEdit,QComboBox,QListWidget,QPlainTextEdit,QTableWidget {{background:{field};padding:5px;}} QPushButton {{background:{field};border:1px solid #61738b;border-radius:5px;padding:7px;}} QPushButton:hover {{border:1px solid #48a8df;}} QDockWidget::title {{padding:6px;}}')
         self.save_settings()
     def save_settings(self):
-        atomic_json(self.preferences,{'language':self.lang,'dark':self.dark,'output_root':self.out.text()})
-    def navigate(self,row):
+        atomic_json(self.preferences,{'language':self.lang,'dark':self.dark,'output_root':self.out.text(),
+            'concurrency':self.concurrency.value(),'view_count':self.workspace.view_count,'linked_views':self.workspace.linked})
+    def navigate(self,row,activate=True):
         descriptions={0:'Import scans → choose analysis → run → inspect immutable results. Ctrl-drag ROI; wheel zoom; drag pan.',
             1:'Independent H5 files remain separate. Montage row shards are grouped using validated provenance.',
             2:'Standard IPF uses cached symmetry-aware orientation colors. Euler RGB is a separate representation.',
             3:'Select V3 texture, Schmid, variants or prior-beta. External MTEX validation pending.',
             4:'Quantitative proxy tools are enabled in M2; no metallurgical RX certification.',
-            5:'One analysis child at a time; failures do not stop subsequent samples. Frozen batch snapshot.',
+            5:'Parallel analyses are bounded by process count and total estimated memory. Failures do not stop other samples; the batch snapshot is frozen.',
             6:'Numeric slicing tools are enabled in M3; geometric patches are not independent specimens.',
             7:'EDS window intensity is not wt.% or at.%. EDS availability is checked separately.',
             8:'Research tools require QC and explicit labels. Supervised mechanics unavailable without labels.',
             9:'Choose font and formats; Render Only uses the selected cache without scientific recomputation.',
             10:'Double-click an archived analysis to preview its cache. Existing results are never overwritten.',
             11:'Optional dependencies: PySide6 for Qt; torch only for AI. Tk fallback remains gui.py.'}
-        self.help.setText(descriptions.get(row,''))
-        if row==3:self.mode.setCurrentText('v3_texture')
-        if row==4:self.mode.setCurrentText('v4_quantitative')
-        if row==10:self.history()
+        bind_text(self.help,descriptions.get(row,''),self.lang)
+        if activate and row==3:self.mode.setCurrentText('v3_texture')
+        if activate and row==4:self.mode.setCurrentText('v4_quantitative')
+        if activate and row==10:self.history()
     def error(self,text):
-        self.log.appendPlainText('ERROR: '+str(text)); W.QMessageBox.warning(self,'EBSD Studio',str(text))
+        raw=str(text);translated=ui(self,raw)
+        self.log.appendPlainText(ui(self,'ERROR')+': '+raw)
+        box=W.QMessageBox(self);box.setWindowTitle(ui(self,'EBSD Studio'));box.setIcon(W.QMessageBox.Icon.Warning)
+        box.setText(translated if translated!=raw or self.lang=='en' else ui(self,'The task failed. Open technical details for the original error.'))
+        box.setDetailedText(raw);box.exec()
     def choose_files(self):
-        paths,_=W.QFileDialog.getOpenFileNames(self,'EBSD inputs','','EBSD (*.h5 *.h5oina)')
+        paths,_=W.QFileDialog.getOpenFileNames(self,ui(self,'EBSD inputs'),'','EBSD (*.h5 *.h5oina)')
         if paths:self.import_paths(paths)
     def choose_folder(self):
-        path=W.QFileDialog.getExistingDirectory(self,'EBSD folder / montage')
+        path=W.QFileDialog.getExistingDirectory(self,ui(self,'EBSD folder / montage'))
         if path:self.import_paths([path])
     def choose_output(self):
-        path=W.QFileDialog.getExistingDirectory(self,'Output root')
+        path=W.QFileDialog.getExistingDirectory(self,ui(self,'Output root'))
         if path:self.out.setText(path);self.save_settings()
     def import_paths(self,paths):
         if self.worker and self.worker.isRunning():return
@@ -229,12 +327,13 @@ class Studio(W.QMainWindow):
         self.worker.finished.connect(lambda:self.add_files.setEnabled(True)); self.worker.start()
     def imported(self,records):
         self.records=records; self.populate(records)
-        self.info.setText(f'{len(records)} scans | {sum(r["nx"]*r["ny"] for r in records):,} measured grid points')
+        bind_text(self.info,'{count} scans | {points:,} measured grid points',self.lang,count=len(records),points=sum(r['nx']*r['ny'] for r in records))
     def populate(self,records):
+        self._display_records=records
         self.table.setRowCount(len(records))
         for i,r in enumerate(records):
             values=[r['source_name'],r['scan_id'],f'{r["nx"]} × {r["ny"]}',f'{r["dx_um"]:g} × {r["dy_um"]:g}',
-                    ', '.join(p['name'] for p in r['phases'].values()),r['parts'],round(r['estimated_cache_bytes']/1024**2,1),r['status']]
+                    ', '.join(p['name'] for p in r['phases'].values()),r['parts'],round(r['estimated_cache_bytes']/1024**2,1),ui(self,r['status'])]
             for j,v in enumerate(values):self.table.setItem(i,j,W.QTableWidgetItem(str(v)))
     def options(self):
         formats=[k for k,v in self.formats.items() if v.isChecked()]
@@ -243,7 +342,7 @@ class Studio(W.QMainWindow):
         layout=self.layout_select.currentText().split(' × ')
         if not maps or int(layout[0])*int(layout[1])<len(maps):raise ValueError('Select maps and a layout with enough cells')
         args=['--analysis',self.mode.currentText(),'--batch',str(self.block.value()),'--font',self.font.currentText(),
-              '--v3-weighting',self.weight.currentText(),'--v3-load-axis',*self.axis.text().split(),'--formats',*formats,
+              '--v3-weighting',self.weight.currentData(),'--v3-load-axis',*self.axis.text().split(),'--formats',*formats,
               '--maps',*maps,'--layout',*layout]
         if self.mode.currentText()=='v4_quantitative':args+=['--rx-threshold-json',json.dumps(json.loads(self.rx_config.text()))]
         if self.roi.text().strip():
@@ -257,7 +356,7 @@ class Studio(W.QMainWindow):
         if self.process and self.process.state()!=C.QProcess.ProcessState.NotRunning:return
         try:
             if not self.paths:raise ValueError('Import one or more scans first')
-            run=create_batch(self.paths,self.out.text(),self.options(),memory_budget_mb=self.budget.value())
+            run=create_batch(self.paths,self.out.text(),self.options(),memory_budget_mb=self.budget.value(),concurrency=self.concurrency.value())
             self.launch(['-u','-m','ebsd_autoplot.batch',str(run)],batch_run=run)
             self.batch_run=run
         except Exception as exc:self.error(exc)
@@ -290,7 +389,7 @@ class Studio(W.QMainWindow):
         if self.active_control:atomic_json(self.active_control,{'cancel':True})
     def resume_batch(self):
         if self.busy():self.error('A task is already running');return
-        path,_=W.QFileDialog.getOpenFileName(self,'Select batch_manifest.json',self.out.text(),'JSON (*.json)')
+        path,_=W.QFileDialog.getOpenFileName(self,ui(self,'Select batch_manifest.json'),self.out.text(),'JSON (*.json)')
         if path:
             try:
                 run=Path(path).parent
@@ -304,13 +403,14 @@ class Studio(W.QMainWindow):
             try:self.populate(json.loads((self.batch_run/'batch_manifest.json').read_text(encoding='utf-8'))['records'])
             except (OSError,ValueError):pass
     def choose_cache(self):
-        path,_=W.QFileDialog.getOpenFileName(self,'Select features.h5',self.out.text(),'Cache (*.h5)')
+        path,_=W.QFileDialog.getOpenFileName(self,ui(self,'Select features.h5'),self.out.text(),ui(self,'Cache (*.h5)'))
         if path:
-            try:self.viewer.load_cache(path,self.map_select.currentText())
+            try:self.workspace.load_cache(path);self.sync_active_view()
             except Exception as exc:self.error(exc)
     def change_map(self,field):
+        field=self.map_select.currentData()
         if self.viewer.cache:
-            try:self.viewer.load_cache(self.viewer.cache,field)
+            try:self.workspace.load_view_cache(self.workspace.active_index,self.viewer.cache,field,preserve_navigation=True)
             except Exception as exc:self.error(exc)
     def set_roi(self,roi):self.roi.setText(' '.join(map(str,roi)))
     def render_only(self):
@@ -343,12 +443,14 @@ class Studio(W.QMainWindow):
         self.history_list.clear()
         for path in sorted(Path(self.out.text()).glob('**/analysis_manifest.json'),reverse=True):
             try:
-                m=json.loads(path.read_text(encoding='utf-8')); item=W.QListWidgetItem(f'{m["status"]} | {m["source_name"]} | {path.parent.name}')
+                m=json.loads(path.read_text(encoding='utf-8'));tail=f'{m["source_name"]} | {path.parent.name}'
+                item=W.QListWidgetItem(ui(self,m['status'])+' | '+tail)
+                item.setData(C.Qt.ItemDataRole.UserRole+1,[m['status'],tail])
                 item.setData(C.Qt.ItemDataRole.UserRole,str(path));self.history_list.addItem(item)
             except (OSError,ValueError,KeyError):continue
     def open_history(self,item):
         path=Path(item.data(C.Qt.ItemDataRole.UserRole)).parent/'analysis_cache/features.h5'
-        try:self.viewer.load_cache(path,self.map_select.currentText())
+        try:self.workspace.load_cache(path);self.sync_active_view()
         except Exception as exc:self.error(exc)
     def dragEnterEvent(self,event):
         if event.mimeData().hasUrls():event.acceptProposedAction()
