@@ -1,6 +1,8 @@
 """Publication panels and full-resolution map export without giant Matplotlib figures."""
 from __future__ import annotations
 from pathlib import Path
+import shutil
+import time
 import numpy as np
 import h5py
 import matplotlib
@@ -19,6 +21,7 @@ def maps(features_file,outdir, dpi=220, progress=print, style=None, formats=('pn
     """Render cached numeric fields; PDF/SVG keep map images raster and annotations vector."""
     style = dict(style or {})
     formats = tuple(dict.fromkeys(str(x).lower().lstrip('.') for x in formats))
+    if not formats:raise ValueError('Choose at least one output format')
     invalid = set(formats) - {'png', 'tiff', 'tif', 'pdf', 'svg'}
     if invalid: raise ValueError(f'Unsupported render format(s): {sorted(invalid)}')
     font = style.get('font', 'DejaVu Sans')
@@ -53,10 +56,16 @@ def maps(features_file,outdir, dpi=220, progress=print, style=None, formats=('pn
             'MAD':('mad',None,'magma',0,2.0),
             'PQ':('pq',None,'gray',None,None)}
         phase_colors={int(k):v['rgb'] for k,v in meta['phase_specs'].items()}
-        for name in ['IPF_X','IPF_Y','IPF_Z','Phase','KAM','BC','MAD','PQ']:
+        all_maps=['IPF_X','IPF_Y','IPF_Z','Phase','KAM','BC','MAD','PQ']
+        requested=style.get('maps') or all_maps
+        if set(requested)-set(all_maps):raise ValueError('Unknown map selection')
+        timings={}
+        for name in requested:
             check_cancelled()
+            started=time.perf_counter()
             if name.startswith('IPF') and ('ipf_'+name[-1] not in f):continue
             if name in ('MAD','PQ') and name.lower() not in f:continue
+            progress(f'Rendering {name}')
             img=np.zeros((h,w,3),dtype=np.uint8)
             if name.startswith('IPF'):
                 ds=f['ipf_'+name[-1]]
@@ -92,17 +101,30 @@ def maps(features_file,outdir, dpi=220, progress=print, style=None, formats=('pn
                     img[a:a+128]=pix
             image=Image.fromarray(img,'RGB')
             image.save(singles/(name+'.png'))
-            image.save(native/(name+'.png'))
+            shutil.copyfile(singles/(name+'.png'),native/(name+'.png'))
             if 'tiff' in formats or 'tif' in formats:
                 image.save(native/(name+'.tiff'))
-            progress('PNG '+name)
+            # interpolation='none' preserves native raster pixels in PDF/SVG;
+            # labels and scale bars remain vector paths/text.
+            if {'pdf','svg'} & set(formats):
+                single,axis=plt.subplots(figsize=(8,8*max(h/w,.1)),layout='constrained')
+                axis.imshow(img,interpolation='none',extent=(0,w*sx,h*sy,0))
+                axis.set_xlabel('X (µm)');axis.set_ylabel('Y (µm)');axis.set_title(name.replace('_','-'))
+                for fmt in ('pdf','svg'):
+                    if fmt in formats:single.savefig(singles/(name+'.'+fmt),dpi=dpi)
+                plt.close(single)
+            timings[name]=time.perf_counter()-started
+            progress(f'Exported {name} PNG/TIFF')
         # research-ready composite display, downsampled only for layout, originals remain untouched
         items=[n for n in ['IPF_X','IPF_Y','IPF_Z','Phase','KAM','BC','MAD','PQ'] if (singles/(n+'.png')).exists()]
-        fig,axes=plt.subplots(2,4,figsize=(17.5,9.2),dpi=dpi,layout='constrained')
+        rows,cols=style.get('layout',(2,4))
+        if rows<1 or cols<1 or rows*cols<len(items):
+            raise ValueError('Layout must have at least as many cells as selected maps')
+        fig,axes=plt.subplots(rows,cols,figsize=(4.4*cols,4.6*rows),dpi=dpi,layout='constrained',squeeze=False)
         for ax,name in zip(axes.ravel(),items):
             im=Image.open(singles/(name+'.png'))
-            im.thumbnail((820,820),Image.Resampling.LANCZOS)
-            ax.imshow(im)
+            # Publication raster is never downsampled before vector embedding.
+            ax.imshow(im,interpolation='none')
             ax.set_title('MAD (°)' if name=='MAD' else name.replace('_','-'),fontsize=14,fontweight='bold')
             if name=='MAD':
                 fig.colorbar(ScalarMappable(norm=Normalize(0,2),cmap='magma'),ax=ax,
@@ -119,6 +141,7 @@ def maps(features_file,outdir, dpi=220, progress=print, style=None, formats=('pn
         fig.suptitle(f'EBSD montage | {w}×{h}, step {sx:g} × {sy:g} µm | IPF: orix TSL convention, NOT AZtec calibrated',fontsize=12)
         for fmt in formats:
             check_cancelled()
+            progress(f'Exporting {fmt.upper()} paper layout')
             fig.savefig(combined/('EBSD_paper_layout.'+fmt),dpi=dpi)
         plt.close(fig)
         if mad_unit is not None:
@@ -126,6 +149,7 @@ def maps(features_file,outdir, dpi=220, progress=print, style=None, formats=('pn
             legend_fig.colorbar(ScalarMappable(norm=Normalize(0,2),cmap='magma'),cax=legend_ax,
                                 orientation='horizontal',ticks=[0,0.5,1,1.5,2],label='MAD (°)')
             for fmt in formats:
+                progress(f'Exporting {fmt.upper()} MAD colourbar')
                 legend_fig.savefig(legends/('MAD_colourbar.'+fmt),dpi=dpi)
             plt.close(legend_fig)
         # colour-scale descriptions, explicit colour-key provenance
@@ -137,4 +161,6 @@ def maps(features_file,outdir, dpi=220, progress=print, style=None, formats=('pn
              'IPF':'orix IPFColorKeyTSL; cannot claim identical to Oxford AZtec without external calibration'}
         import json
         (outdir/'colour_legend_metadata.json').write_text(json.dumps(doc,indent=2),encoding='utf-8')
+        (outdir/'render_timings.json').write_text(json.dumps(timings,indent=2),encoding='utf-8')
+        progress('Rendering complete')
         return combined/('EBSD_paper_layout.png' if 'png' in formats else 'EBSD_paper_layout.'+formats[0])

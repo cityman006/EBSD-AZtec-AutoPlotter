@@ -265,3 +265,11 @@ WINDOWS_TESTED_VERSIONS.json
 validate_mad_fix.py
 finish_report.py
 GITHUB_UPLOAD_REPORT.md
+
+# V4 local work and trained models
+.local/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+config/studio_preferences.json

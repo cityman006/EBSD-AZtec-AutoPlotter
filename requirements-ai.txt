@@ -1,0 +1,3 @@
+# Optional CPU/GPU research dependencies; basic EBSD and Qt do not import them.
+-r requirements.txt
+torch>=2.4

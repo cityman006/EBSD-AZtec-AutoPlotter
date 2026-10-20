@@ -30,14 +30,40 @@ def _scalar(g, key, default=None):
 
 def _lattice_parameters(group):
     """Read the lattice recorded in the phase header; never substitute nominal Ti values."""
-    for key in ('Lattice Dimensions','Lattice Parameters','Lattice Constants','Lattice'):
-        if key not in group or not isinstance(group[key],h5py.Dataset):continue
+    def values(key):
+        if key not in group or not isinstance(group[key], h5py.Dataset):
+            return None
         raw=np.asarray(group[key][()],dtype=float).reshape(-1)
-        if raw.size<6 or not np.all(np.isfinite(raw[:6])) or np.any(raw[:3]<=0):continue
+        if not np.all(np.isfinite(raw)):
+            return None
+        return raw
+
+    for key in ('Lattice Dimensions','Lattice Parameters','Lattice Constants','Lattice'):
+        raw=values(key)
+        if raw is None or raw.size<6 or np.any(raw[:3]<=0):continue
         a,b,c,alpha,beta,gamma=map(float,raw[:6])
         return {'a':a,'b':b,'c':c,'alpha_deg':alpha,'beta_deg':beta,'gamma_deg':gamma,
                 'c_over_a':c/a,'source_key':key,
                 'units':str(group[key].attrs.get('Units',group[key].attrs.get('Unit','not specified')))}
+
+    # Oxford H5OINA stores dimensions and angles as separate phase-header
+    # datasets.  The dimensions use the source lattice units and the angles
+    # follow the H5OINA angular contract (radians); no nominal Ti constants are
+    # introduced here.  c/a is dimensionless, so the source length unit does
+    # not affect the Schmid calculation.
+    dims=None
+    for key in ('Lattice Dimensions','Lattice Parameters','Lattice Constants','Lattice'):
+        raw=values(key)
+        if raw is not None and raw.size>=3 and np.all(raw[:3]>0):
+            dims=raw[:3].astype(float);dim_key=key;break
+    angles=values('Lattice Angles')
+    if dims is not None and angles is not None and angles.size>=3:
+        a,b,c=map(float,dims)
+        alpha,beta,gamma=np.rad2deg(angles[:3])
+        unit=str(group[dim_key].attrs.get('Units',group[dim_key].attrs.get('Unit','not specified')))
+        return {'a':a,'b':b,'c':c,'alpha_deg':float(alpha),'beta_deg':float(beta),'gamma_deg':float(gamma),
+                'c_over_a':c/a,'source_key':f'{dim_key}+Lattice Angles',
+                'units':unit,'angle_units':'radian (H5OINA contract)'}
     return None
 
 @dataclass(frozen=True)

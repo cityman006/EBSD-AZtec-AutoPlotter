@@ -257,6 +257,7 @@ def execute_render(run,m):
     cache=(dataset/m['cache_path']).resolve()
     opts=m['options']
     style={'name':opts['font'],'font':opts['font'],'font.size':opts['font_size'],'svg_text_mode':opts['svg_text_mode']}
+    style.update(maps=opts.get('maps'),layout=opts.get('layout',(2,4)))
     with file_lock(run/'.run.lock',timeout=.1):
         m.update(status='running',owner=owner());write_run_manifest(mp,m)
         event('render',run,cache_id=m['cache_id'],scan_id=m.get('scan_id'))

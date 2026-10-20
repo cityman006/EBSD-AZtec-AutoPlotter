@@ -2,9 +2,9 @@ name: Python tests
 
 on:
   push:
-    branches: [main, feature/advanced-crystallography-v3]
+    branches: [main, 'feature/**']
   pull_request:
-    branches: [main]
+    branches: [main, 'feature/**']
 
 jobs:
   tests:
@@ -17,5 +17,7 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
       - run: python -m pip install --upgrade pip
-      - run: python -m pip install -r requirements.txt pytest
+      - run: python -m pip install -r requirements-gui.txt pytest
       - run: python -m pytest tests -q
+        env:
+          QT_QPA_PLATFORM: offscreen

@@ -31,6 +31,8 @@ def parser():
     p.add_argument('--output-root',help='Explicit total output root')
     p.add_argument('--out',help='Legacy alias for --output-root; never reuses a previous run directory')
     p.add_argument('--scan',action='append',help='Optional scan_path or scan tag; repeat to select several. Default: all scans')
+    p.add_argument('--source-name',help='Exact source name selector for batch montage groups')
+    p.add_argument('--scan-tag',help='Exact optional scan tag selector')
     p.add_argument('--cache',help='Render Only from a selected archived cache; never opens raw data')
     p.add_argument('--analysis-cache',help='V2 from a selected archived V1 cache')
     p.add_argument('--resume',help='Explicitly resume an analysis/render manifest or run directory after verifying checkpoints')
@@ -41,6 +43,8 @@ def parser():
     p.add_argument('--include-unassigned-legacy',action='store_true')
     p.add_argument('--font',default='DejaVu Sans')
     p.add_argument('--font-size',type=float,default=12)
+    p.add_argument('--maps',nargs='+',choices=['IPF_X','IPF_Y','IPF_Z','Phase','KAM','BC','MAD','PQ'])
+    p.add_argument('--layout',nargs=2,type=int,default=[2,4],metavar=('ROWS','COLS'))
     p.add_argument('--formats',nargs='+',choices=['png','tiff','pdf','svg'],default=['png'])
     p.add_argument('--svg-text-mode',choices=['editable_text','text_as_paths'],default='editable_text')
     p.add_argument('--analysis',choices=['v1','v1v2','v2','inspect','render',
@@ -95,6 +99,9 @@ def main(argv=None):
             if args.analysis=='render':p.error('Render Only requires --cache')
             if args.batch<1:p.error('--batch must be positive')
             specs=discover_scans(args.input)
+            if args.source_name is not None:specs=[s for s in specs if s.source_name==args.source_name]
+            if args.scan_tag is not None:specs=[s for s in specs if s.scan_tag==args.scan_tag]
+            if not specs:p.error('No scan matches frozen batch source identity')
             if args.scan:
                 specs=[s for s in specs if s.scan_path in args.scan or s.scan_tag in args.scan]
                 if not specs:p.error('No scan matches --scan')
@@ -102,6 +109,10 @@ def main(argv=None):
                 for spec in specs:print(json.dumps(H5Source(spec).header,ensure_ascii=False,indent=2))
                 return 0
             if not args.output_root and not args.out:p.error('specify --output-root (or legacy --out) explicitly')
+            # Build scan sources before validating ROI dimensions.  V3 ROI
+            # validation needs the real scan size and must also work for
+            # multi-scan H5 files.
+            sources=[H5Source(spec) for spec in specs]
             if args.analysis in ('v3_schmid','v3_variants','v3_prior_beta'):
                 try:
                     roi=args.roi or [0,0,sources[0].nx,sources[0].ny]
@@ -111,7 +122,6 @@ def main(argv=None):
             if args.v3_bandwidth<=0 or args.v3_grid_step<=0 or args.v3_max_samples<1:p.error('V3 bandwidth, grid step and sample count must be positive')
             opts['v3_load_axis']=tuple(args.v3_load_axis)
             failed=False
-            sources=[H5Source(spec) for spec in specs]
             for source in sources:
                 if cancelled():raise Cancelled('Cancelled before next scan')
                 try:pipeline.analyze(source,args.output_root or args.out,opts)
