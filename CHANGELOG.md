@@ -13,6 +13,7 @@
   safely cancel/join preview threads on dialog, application and interpreter exit.
 - Keep raw/cache/old result bytes unchanged and publish new archived outputs.
   Fit residuals are not independent registration or chemical validation.
+- Accept equivalent normal/extended Windows paths in landmark project checks.
 
 ## 4.0.0.dev2 — bilingual linked workbench and parallel analysis
 

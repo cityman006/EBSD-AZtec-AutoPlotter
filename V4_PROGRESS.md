@@ -17,8 +17,8 @@ uncommitted files and raw experimental sources are untouched.
 |---|---|---|---|
 | M1 | feature/v4-modern-gui-batch → feature/advanced-crystallography-v3 | [#2](https://github.com/cityman006/EBSD-AZtec-AutoPlotter/pull/2) | d1afd39aa0453a4e1eb712347f5da37a7b36c7d3 |
 | M2 | feature/v4-ebsd-quantitative → feature/v4-modern-gui-batch | [#3](https://github.com/cityman006/EBSD-AZtec-AutoPlotter/pull/3) | 51c8dbe653e620953e63ba3dedb9cfc727b4c5d9 |
-| M3 | feature/v4-patches-eds-gnn → feature/v4-ebsd-quantitative | [#4](https://github.com/cityman006/EBSD-AZtec-AutoPlotter/pull/4) | 5e3b91779873b86cd0e4d4a3372754b05c4db9a6 |
-| M4 | feature/v4-mechanics-diffusion → feature/v4-patches-eds-gnn | [#5](https://github.com/cityman006/EBSD-AZtec-AutoPlotter/pull/5) | c0b00c1f9ba5179f44c44f88106ed52fbc5211ff (feature code; followed by version/docs and dependency integration) |
+| M3 | feature/v4-patches-eds-gnn → feature/v4-ebsd-quantitative | [#4](https://github.com/cityman006/EBSD-AZtec-AutoPlotter/pull/4) | 8a625527af9fafffddeb2e959406237a2cd43838 |
+| M4 | feature/v4-mechanics-diffusion → feature/v4-patches-eds-gnn | [#5](https://github.com/cityman006/EBSD-AZtec-AutoPlotter/pull/5) | c9974e84dfe521c4a5fcc0c89be810dcdeb727a3 (feature code; followed by verification documentation only) |
 
 No main commits, automatic merge, force-push, or public/private setting changes.
 Each PR remains Draft. Earlier exact-head CI passed; latest continuation
@@ -71,9 +71,9 @@ fixed a sub-unit boundary-weight normalization error and GUI CrashExit status.
 Qt/preview/process tests cover real child launch, pause/cancel, stale map results,
 physical aspect, masks and bounded reads from an instrumented 100000×200000 grid.
 Final full Windows regression after EDS montage/landmark integration:
-**306 passed, 2 upstream deprecation warnings, 124.93 s** with
+**307 passed, 2 upstream deprecation warnings, 132.41 s** with
 `.venv\Scripts\python.exe -m pytest tests -q
---basetemp=.local/test-v4-eds-registration-full`. Existing Tk tests ran with normal
+--basetemp=.local/test-v4-eds-registration-final-paths`. Existing Tk tests ran with normal
 desktop process permissions after a sandbox handle restriction; no tests were
 removed or validation disabled. `compileall` and `git diff --check` pass.
 
@@ -90,7 +90,10 @@ checked all 762,804 coordinate pairs. Raw/cache/old PDF hashes stayed unchanged.
 Real row shards were unavailable; those layouts use actual-extractor-faithful
 synthetic fixtures. See [EDS verification limits](docs/V4_EDS_MONTAGE_REGISTRATION.md).
 The independent M3 branch also passed its complete suite: **256 passed,
-2 upstream warnings, 110.21 s**. No M4 research modules were imported into M3.
+2 upstream warnings, 110.21 s**. A subsequent Windows extended-path alias
+regression first failed, then **16 landmark/archive checks passed, 3.62 s**;
+the final integrated 307-test suite includes it. No M4 research modules were
+imported into M3.
 
 Local dependency check: `pip check` passes. Python 3.12, PySide6 6.12; optional
 Torch 2.14.1+cpu was actually installed/tested, including Windows worker spawn.
