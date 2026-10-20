@@ -212,8 +212,10 @@ def _plot_pf(path, poles, *, title, bins=180, formats=("png",)):
     if total != len(poles) or np.any(counts[~inside]):
         raise ValueError("PF disk histogram failed pole-count conservation")
     mud[inside] = counts[inside]/total * (2*np.pi)/areas[inside]
-    vmin = max(0.0, float(np.nanpercentile(mud, 2)))
-    vmax = max(vmin + 1e-6, float(np.nanpercentile(mud, 98)))
+    # Quantitative legends show the actual density range; a sparse single
+    # crystal must not silently saturate against a 98th-percentile zero scale.
+    vmin = 0.0
+    vmax = max(1e-6, float(np.nanmax(mud)))
     fig, ax = plt.subplots(figsize=(5.2, 4.8), layout="constrained")
     im = ax.pcolormesh(edges, edges, mud.T, shading="auto", cmap="viridis", norm=Normalize(vmin, vmax))
     ax.add_patch(plt.Circle((0, 0), np.sqrt(2), fill=False, color="black", lw=0.8))
