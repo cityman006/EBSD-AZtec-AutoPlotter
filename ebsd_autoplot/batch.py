@@ -319,6 +319,8 @@ def execute_batch(run, *, progress=print):
                 '--source-name', record['source_name'], '--scan-tag', record.get('scan_tag', ''),
                 *data['options'], '--control-file', str(control)]
             env = os.environ.copy()
+            env['PYTHONIOENCODING'] = 'utf-8'
+            env['PYTHONUTF8'] = '1'
             for name in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS',
                          'NUMEXPR_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS', 'BLIS_NUM_THREADS', 'NUMBA_NUM_THREADS'):
                 env[name] = '1'
