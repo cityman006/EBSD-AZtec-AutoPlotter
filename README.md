@@ -1,6 +1,6 @@
 # EBSD-AZtec AutoPlotter V4 Materials Intelligence Studio
 
-Windows Python research software for Oxford Instruments AZtec H5OINA/HDF5 EBSD maps. Current development version: **4.0.0.dev2**. V4 adds an optional PySide6 Studio while retaining the Tk GUI and V1/V2/V3 pipelines. This is research development, not a scientifically certified release or standalone exe.
+Windows Python research software for Oxford Instruments AZtec H5OINA/HDF5 EBSD maps. Current development version: **4.0.0.dev3**. V4 adds an optional PySide6 Studio while retaining the Tk GUI and V1/V2/V3 pipelines. This is research development, not a scientifically certified release or standalone exe.
 
 ## Start V4 on Windows
 
@@ -18,13 +18,15 @@ GNN/ridge/DDPM research baselines run on CPU without Torch or CUDA.
 |---|---|---|
 | M1 | Complete English/Chinese Qt presentation, linked 1/2/4 maps, bounded 1–8 analysis processes, immutable snapshots, cancellation/recovery, cached tiles and native publication export | Local software tests; actual physical 4K/multi-monitor validation pending |
 | M2 | Phase-specific RX proxy/QC, grain morphology/weighted CDF, Euler scalars/RGB, PF/ODF and inverse-pole statistics, numeric CSV summaries | Synthetic and real-data workflow checks; RX metallurgy and MTEX/AZtec comparison pending |
-| M3 | Lossless grid/pixel/µm patches, masks, EDS windows/timing/registration, grain graphs, grouped Dataset/DataLoader | Exact-pixel tests and real H5OINA checks; EDS montage stitching and GUI landmark editing pending |
+| M3 | Lossless patches, source-verified EDS row montage, native-window landmark editor/JSON projects, grain graphs, grouped Dataset/DataLoader | Exact-pixel/Qt tests and real intact H5OINA checks; real row-shard acquisitions and independent landmark accuracy still unverified |
 | M4 | Independent mechanics-label import, grouped GNN/ridge learning, held-out metrics, checkpoint inference, conditional numerical DDPM | Research baselines; no real mechanics training or material inverse-design validation |
 
 See [Chinese V4 usage](docs/V4_USER_GUIDE.md), [progress](V4_PROGRESS.md),
 [plan](V4_PLAN.md) and module evidence in [M1](docs/V4_M1.md),
 [M2](docs/V4_M2.md), [M3](docs/V4_M3.md), [M4](docs/V4_M4.md).
 Drafts are stacked V3 → M1 → M2 → M3 → M4; none are merged automatically.
+For EDS montage layouts and the explicit registration workflow, see
+[EDS montage and landmarks](docs/V4_EDS_MONTAGE_REGISTRATION.md).
 
 ## Features
 

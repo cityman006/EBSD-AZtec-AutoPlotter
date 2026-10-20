@@ -1,5 +1,19 @@
 # Changelog
 
+## 4.0.0.dev3 — EDS row montage and landmark registration
+
+- Stitch native EDS windows/timing using validated source scan and row ranges;
+  support preserved-global and proven Compact_v1 local Header dimensions.
+- Preserve complete native values/dtypes, cps/counts units and timing; missing
+  EDS parts stay explicitly unavailable. Reject conflicting units, malformed
+  grids and accumulated coordinate drift using actual pointwise comparisons.
+- Add bilingual native-pixel landmark preview/click/table editing, affine/QC,
+  source-bound atomic JSON save/load and explicit Apply to EDS/patch exports.
+- Use bounded previews/coordinate blocks and owned temporary-backed buffers;
+  safely cancel/join preview threads on dialog, application and interpreter exit.
+- Keep raw/cache/old result bytes unchanged and publish new archived outputs.
+  Fit residuals are not independent registration or chemical validation.
+
 ## 4.0.0.dev2 — bilingual linked workbench and parallel analysis
 
 - Complete English/Chinese controls, help, tabs, headers, dialogs, dynamic

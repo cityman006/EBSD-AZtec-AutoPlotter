@@ -10,6 +10,9 @@ publish through the existing transaction receipt mechanism.
 The supported montage is the project's existing **row-partitioned scan**,
 identified by its analysis manifest, scan identity and explicit row ranges.
 This is not an image-based 2D tile alignment algorithm.
+Automatic assembly verifies the documented regular, axis-aligned source raster;
+other physical frames or nonlinear stage geometry are not silently inferred.
+The native single-source landmark route is available for an explicit affine.
 
 Both preserved-global Header dimensions and the local Header dimensions emitted
 by the Compact_v1 extractor are supported. Local Header dimensions require

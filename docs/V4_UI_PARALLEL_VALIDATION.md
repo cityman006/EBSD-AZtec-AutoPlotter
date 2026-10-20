@@ -66,8 +66,8 @@ Latest-head GitHub checks are available on Draft PRs
 [#4](https://github.com/cityman006/EBSD-AZtec-AutoPlotter/pull/4) and
 [#5](https://github.com/cityman006/EBSD-AZtec-AutoPlotter/pull/5).
 
-Fine-grained overall percentage progress, physical multi-monitor QA, EDS
-montage stitching/landmark editing, external crystallographic comparison,
+Dev3 subsequently adds [authoritative EDS row montage and landmark editing](V4_EDS_MONTAGE_REGISTRATION.md).
+Fine-grained overall percentage progress, physical multi-monitor QA, external crystallographic comparison,
 metallurgical RX calibration, real mechanics blind tests and generated-structure
 physical validation remain outstanding. See the complete acceptance-gap list in
 [V4_PROGRESS.md](../V4_PROGRESS.md); no software test is represented as an

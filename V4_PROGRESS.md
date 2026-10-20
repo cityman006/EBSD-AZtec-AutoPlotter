@@ -1,4 +1,4 @@
-# V4 progress and verification — 4.0.0.dev2
+# V4 progress and verification — 4.0.0.dev3
 
 This development increment has runnable implementations in M1–M4, with stacked
 Draft PRs. **The complete attachment acceptance list is not yet fulfilled.**
@@ -17,8 +17,8 @@ uncommitted files and raw experimental sources are untouched.
 |---|---|---|---|
 | M1 | feature/v4-modern-gui-batch → feature/advanced-crystallography-v3 | [#2](https://github.com/cityman006/EBSD-AZtec-AutoPlotter/pull/2) | d1afd39aa0453a4e1eb712347f5da37a7b36c7d3 |
 | M2 | feature/v4-ebsd-quantitative → feature/v4-modern-gui-batch | [#3](https://github.com/cityman006/EBSD-AZtec-AutoPlotter/pull/3) | 51c8dbe653e620953e63ba3dedb9cfc727b4c5d9 |
-| M3 | feature/v4-patches-eds-gnn → feature/v4-ebsd-quantitative | [#4](https://github.com/cityman006/EBSD-AZtec-AutoPlotter/pull/4) | 9948e81bdd56e63933eeb4501a542061601abd14 |
-| M4 | feature/v4-mechanics-diffusion → feature/v4-patches-eds-gnn | [#5](https://github.com/cityman006/EBSD-AZtec-AutoPlotter/pull/5) | 1b36a9f07862850f63c1005f2b9730b9a9116dfc (followed by documentation only) |
+| M3 | feature/v4-patches-eds-gnn → feature/v4-ebsd-quantitative | [#4](https://github.com/cityman006/EBSD-AZtec-AutoPlotter/pull/4) | 5e3b91779873b86cd0e4d4a3372754b05c4db9a6 |
+| M4 | feature/v4-mechanics-diffusion → feature/v4-patches-eds-gnn | [#5](https://github.com/cityman006/EBSD-AZtec-AutoPlotter/pull/5) | c0b00c1f9ba5179f44c44f88106ed52fbc5211ff (feature code; followed by version/docs and dependency integration) |
 
 No main commits, automatic merge, force-push, or public/private setting changes.
 Each PR remains Draft. Earlier exact-head CI passed; latest continuation
@@ -48,6 +48,10 @@ the final delivery reports its observed status separately from local results.
   coordinate verification and explicit registration, native cps preservation;
   real 2D grain graphs and physical boundary lengths, source/hash/phase schema,
   grouped Dataset and optional Windows Torch DataLoader.
+  Dev3 adds authoritative EDS row montage, proven local/global Header ingestion,
+  every-coordinate cross-modality checks, contradictory-unit/drift rejection,
+  and bilingual asynchronous landmark editing with frozen JSON projects.
+  Explicit registration is available to EDS and patch actions in new runs.
 - M4: independent mechanics-label import with units/frame/source mapping;
   grouped learned CPU GNN/ridge, train-only scalers, held-out metrics,
   research prediction/uncertainty exports. Real inference requires matching
@@ -66,10 +70,10 @@ Independent review reran six relevant cases: **6 passed, 1.60 s**. It found and
 fixed a sub-unit boundary-weight normalization error and GUI CrashExit status.
 Qt/preview/process tests cover real child launch, pause/cancel, stale map results,
 physical aspect, masks and bounded reads from an instrumented 100000×200000 grid.
-Final full Windows regression after dev2 integration and Windows encoding fixes:
-**212 passed, 2 upstream deprecation warnings, 74.21 s** with
+Final full Windows regression after EDS montage/landmark integration:
+**306 passed, 2 upstream deprecation warnings, 124.93 s** with
 `.venv\Scripts\python.exe -m pytest tests -q
---basetemp=.local/test-v4-ui-parallel-final-utf8`. Existing Tk tests ran with normal
+--basetemp=.local/test-v4-eds-registration-full`. Existing Tk tests ran with normal
 desktop process permissions after a sandbox handle restriction; no tests were
 removed or validation disabled. `compileall` and `git diff --check` pass.
 
@@ -78,6 +82,15 @@ language/theme/layout/map/future settings change, all-child cancellation,
 source-stamped patch selections, first-layout fit, UTF-8 chunks and inherited
 GBK settings. Independent final encoding review: **2 passed, 3.20 s**.
 See [the dev2 acceptance evidence](docs/V4_UI_PARALLEL_VALIDATION.md).
+New EDS evidence includes native dtype/value equality, exact local/global Header
+cache equality, far-edge coordinate drift and unit-conflict rejection, actual Qt
+clicks/JSON/race/shutdown checks and cache-only archive actions. A real 756×1009
+intact H5OINA cached action preserved all seven cps arrays/dtypes exactly and
+checked all 762,804 coordinate pairs. Raw/cache/old PDF hashes stayed unchanged.
+Real row shards were unavailable; those layouts use actual-extractor-faithful
+synthetic fixtures. See [EDS verification limits](docs/V4_EDS_MONTAGE_REGISTRATION.md).
+The independent M3 branch also passed its complete suite: **256 passed,
+2 upstream warnings, 110.21 s**. No M4 research modules were imported into M3.
 
 Local dependency check: `pip check` passes. Python 3.12, PySide6 6.12; optional
 Torch 2.14.1+cpu was actually installed/tested, including Windows worker spawn.
@@ -112,8 +125,10 @@ PDF was visually checked. Private outputs/evidence are under `.local/`:
   Complete Qt bilingual presentation, linked simultaneous viewers and bounded
   configurable parallel analyses are now implemented; raw technical logs and
   scientific identifiers intentionally remain verbatim.
-- Full large-map grain/texture analysis, EDS montage stitching and GUI landmark
-  registration editor; complete publication-template/interactive styling suite.
+- Full large-map grain/texture analysis and complete publication-template /
+  interactive styling suite. Authoritative EDS row montage and GUI landmark
+  editing are implemented; arbitrary 2D stage-tile alignment and independent
+  experimental landmark accuracy are not claimed.
 - Independent MTEX/AZtec agreement, RX metallurgy calibration, instrument frame
   transform verification, real segmentation/reconstruction reference accuracy.
 - Independent real mechanics labels/training/blind test, cross-material
