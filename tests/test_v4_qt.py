@@ -20,6 +20,77 @@ def test_qt_studio_theme_language_snapshot_and_roi(tmp_path):
     win.close();app.processEvents()
 
 
+def test_context_parameter_pages_are_exclusive_and_keep_slice_values(tmp_path):
+    app=W.QApplication.instance() or W.QApplication([])
+    win=Studio();win.preferences=tmp_path/'settings.json';win.show();app.processEvents()
+    assert win.nav.count()==12
+    assert len(win.parameter_pages)==len(win.parameter_forms)==12
+    assert win.param_stack.objectName()=='workspaceParameterStack'
+    assert win.content_stack.objectName()=='workspaceContentStack'
+    win.slice_y.setValue(3);win.slice_x.setValue(5)
+    win.out.setText(str(tmp_path/'outputs'));win.paths=['sample.h5oina']
+    for row in range(win.nav.count()):
+        win.nav.setCurrentRow(row);app.processEvents()
+        assert win.param_stack.currentIndex()==row
+        assert win.content_stack.currentIndex()==row
+        assert win.parameter_pages[row].isVisible()
+        assert all(page.isHidden() for index,page in win.parameter_pages.items() if index!=row)
+        assert win.panel.windowTitle()
+    win.nav.setCurrentRow(6);app.processEvents()
+    assert win.slice_x.value()==5 and win.slice_y.value()==3
+    assert win.slice_mode.isVisible() and win.slice_y.isVisible() and win.slice_x.isVisible()
+    # Slicing controls live only below the slicing workspace; batch-only controls
+    # are owned by a different stacked page and cannot reserve visible space.
+    assert not win.parameter_pages[6].findChildren(W.QPushButton) or all(
+        button not in win.parameter_pages[6].findChildren(W.QPushButton)
+        for button in (win.run_button,win.cancel_button,win.resume_button))
+    assert not win.run_button.isVisible() and not win.budget.isVisible()
+    win.nav.setCurrentRow(7);app.processEvents()
+    assert win.eds_block.isVisible() and win.eds_rate.isVisible()
+    assert win.out.text()==str(tmp_path/'outputs') and win.paths==['sample.h5oina']
+    win.close();app.processEvents()
+
+
+def test_context_parameter_preferences_restore_after_restart(tmp_path,monkeypatch):
+    import gui_qt
+    app=W.QApplication.instance() or W.QApplication([])
+    (tmp_path/'config').mkdir()
+    monkeypatch.setattr(gui_qt,'ROOT',tmp_path)
+    first=Studio()
+    first.slice_y.setValue(3);first.slice_x.setValue(5)
+    first.font.setCurrentText('Times New Roman')
+    first.layout_select.setCurrentText('3 × 3')
+    first.nav.setCurrentRow(6);first.out.setText(str(tmp_path/'out'));first.save_settings()
+    first.close();app.processEvents()
+    second=Studio()
+    assert (second.slice_y.value(),second.slice_x.value())==(3,5)
+    assert second.font.currentText()=='Times New Roman'
+    assert second.layout_select.currentText()=='3 × 3'
+    assert second.nav.currentRow()==6 and second.out.text()==str(tmp_path/'out')
+    second.close();app.processEvents()
+
+
+def test_context_switch_does_not_mutate_an_active_batch_snapshot(tmp_path,monkeypatch):
+    import copy
+    import gui_qt
+    app=W.QApplication.instance() or W.QApplication([])
+    win=Studio();win.preferences=tmp_path/'settings.json'
+    win.paths=['sample.h5oina'];win.out.setText(str(tmp_path/'out'));win.nav.setCurrentRow(5)
+    captured={}
+    expected=win.options()
+    def fake_create_batch(paths,output,args,**kwargs):
+        captured.update(paths=list(paths),output=output,args=copy.deepcopy(args),kwargs=dict(kwargs))
+        return tmp_path/'batch'
+    monkeypatch.setattr(gui_qt,'create_batch',fake_create_batch)
+    win.launch=lambda args,**kwargs:captured.update(launch_args=list(args),launch_kwargs=dict(kwargs))
+    win.start_batch()
+    frozen=copy.deepcopy(captured)
+    win.nav.setCurrentRow(6);win.slice_x.setValue(7);win.block.setValue(48);win.out.setText(str(tmp_path/'other'))
+    assert captured==frozen
+    assert captured['args']==expected and captured['paths']==['sample.h5oina']
+    win.close();app.processEvents()
+
+
 def test_cached_action_owns_cancel_control(tmp_path):
     from pathlib import Path
     app=W.QApplication.instance() or W.QApplication([])

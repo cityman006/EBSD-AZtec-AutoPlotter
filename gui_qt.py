@@ -244,6 +244,9 @@ class Studio(W.QMainWindow):
         self.active_batch_run=None; self.active_control=None
         self.lang=self.saved.get('language','zh'); self.dark=self.saved.get('dark',True)
         self._build(); self.set_theme(self.dark); self.translate()
+        # Navigation items are populated by translate(), so restore the saved
+        # workspace only after its rows exist.
+        self.nav.setCurrentRow(min(max(0,int(self.saved.get('active_workspace',0))),len(NAV)-1))
         self.timer=C.QTimer(self); self.timer.timeout.connect(self.refresh_queue); self.timer.start(600)
     def _build(self):
         toolbar=self.addToolBar('Workspace'); toolbar.setMovable(False)
@@ -253,7 +256,7 @@ class Studio(W.QMainWindow):
         self.map_select=W.QComboBox(); self.map_select.addItems(['BC','Phase','KAM','IPF_X','IPF_Y','IPF_Z'])
         for i in range(self.map_select.count()):
             value=self.map_select.itemText(i);self.map_select.setItemData(i,value);bind_combo_item(self.map_select,i,value)
-        self.map_select.currentIndexChanged.connect(self.change_map);toolbar.addWidget(self.map_select)
+        self.map_select.currentIndexChanged.connect(self.change_map)
         self.info=W.QLabel('Import H5 / H5OINA — AZtec color not calibrated'); toolbar.addWidget(self.info)
         self.task_status=W.QLabel();set_status(self,'IDLE');toolbar.addWidget(self.task_status)
         self.nav=W.QListWidget(); self.nav.currentRowChanged.connect(self.navigate)
@@ -264,55 +267,106 @@ class Studio(W.QMainWindow):
         self.workspace.active_view_changed.connect(self.sync_active_view)
         self.workspace.field_changed.connect(lambda *_:self.sync_active_view())
         self.workspace.load_error.connect(lambda i,error:self.log.appendPlainText(ui(self,'View {number}: {error}',number=i+1,error=error)))
-        self.setCentralWidget(self.workspace)
-        self.params=W.QWidget(); form=W.QFormLayout(self.params)
-        self.help=W.QLabel(); self.help.setWordWrap(True); form.addRow(self.help)
+        self.content_stack=W.QStackedWidget();self.content_stack.setObjectName('workspaceContentStack')
+        self.workspace_context={};self.workspace_context_titles={}
+        for index,(source,_) in enumerate(NAV):
+            if index==2:
+                page=self.workspace
+            else:
+                page=W.QWidget();layout=W.QVBoxLayout(page);layout.setContentsMargins(28,28,28,28)
+                layout.addStretch(1);title=W.QLabel();title.setAlignment(C.Qt.AlignmentFlag.AlignCenter)
+                title.setText(ui(self,source));title.setStyleSheet('font-size:24px;font-weight:600;');layout.addWidget(title)
+                detail=W.QLabel();detail.setObjectName(f'workspaceContext_{index}');detail.setAlignment(C.Qt.AlignmentFlag.AlignCenter)
+                detail.setWordWrap(True);detail.setMaximumWidth(720);layout.addWidget(detail,0,C.Qt.AlignmentFlag.AlignHCenter)
+                layout.addStretch(2);self.workspace_context[index]=detail
+                self.workspace_context_titles[index]=title
+            page.setObjectName(f'workspaceContent_{index}')
+            self.content_stack.addWidget(page)
+        self.setCentralWidget(self.content_stack)
+        self.panel=W.QDockWidget('Parameters / 参数',self)
+        self.param_stack=W.QStackedWidget();self.param_stack.setObjectName('workspaceParameterStack')
+        self.parameter_pages={};self.parameter_forms={};self.parameter_help={};self.parameter_titles={}
+        for index,(source,_) in enumerate(NAV):
+            content=W.QWidget();content.setObjectName(f'parameterPage_{index}')
+            layout=W.QVBoxLayout(content);layout.setContentsMargins(10,10,10,10);layout.setSpacing(10)
+            title=W.QLabel();title.setObjectName(f'parameterTitle_{index}')
+            title.setStyleSheet('font-size:16px;font-weight:600;')
+            help_label=W.QLabel();help_label.setObjectName(f'parameterHelp_{index}');help_label.setWordWrap(True)
+            form=W.QFormLayout();form.setFieldGrowthPolicy(W.QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+            layout.addWidget(title);layout.addWidget(help_label);layout.addLayout(form);layout.addStretch(1)
+            scroll=W.QScrollArea();scroll.setObjectName(f'parameterScroll_{index}');scroll.setWidgetResizable(True);scroll.setWidget(content)
+            self.param_stack.addWidget(scroll);self.parameter_pages[index]=scroll;self.parameter_forms[index]=form
+            self.parameter_help[index]=help_label;self.parameter_titles[index]=title
+        self.params=self.param_stack.widget(0)
+        self.help=self.parameter_help[0]
+        def add_row(index,label,widget=None):
+            if widget is None:self.parameter_forms[index].addRow(label)
+            else:self.parameter_forms[index].addRow(label,widget)
         self.mode=W.QComboBox(); self.mode.addItems(['v1','v1v2','v3_texture','v3_schmid','v3_variants','v3_prior_beta','v4_quantitative'])
-        form.addRow('Analysis / 分析',self.mode)
-        self.roi=W.QLineEdit(); self.roi.setPlaceholderText('X Y WIDTH HEIGHT (blank = full scan)'); form.addRow('ROI pixels',self.roi)
-        self.axis=W.QLineEdit('0 0 1'); form.addRow('Load axis X Y Z',self.axis)
-        self.block=W.QSpinBox(); self.block.setRange(1,1024); self.block.setValue(32); form.addRow('Block rows',self.block)
-        self.budget=W.QSpinBox(); self.budget.setRange(16,65536); self.budget.setValue(2048); self.budget.setSuffix(' MB'); form.addRow('Memory budget',self.budget)
+        add_row(5,'Analysis / 分析',self.mode)
+        self.roi=W.QLineEdit(); self.roi.setPlaceholderText('X Y WIDTH HEIGHT (blank = full scan)'); add_row(5,'ROI pixels',self.roi)
+        self.axis=W.QLineEdit('0 0 1'); add_row(3,'Load axis X Y Z',self.axis)
+        self.block=W.QSpinBox(); self.block.setRange(1,1024); self.block.setValue(32); add_row(5,'Block rows',self.block)
+        self.grain_threshold=W.QDoubleSpinBox();self.grain_threshold.setRange(.01,180);self.grain_threshold.setValue(5);self.grain_threshold.setSuffix('°')
+        add_row(4,'Grain misorientation threshold',self.grain_threshold)
+        self.min_grain_pixels=W.QSpinBox();self.min_grain_pixels.setRange(1,1000000);self.min_grain_pixels.setValue(8)
+        add_row(4,'Minimum grain size (pixels)',self.min_grain_pixels)
+        self.budget=W.QSpinBox(); self.budget.setRange(16,65536); self.budget.setValue(2048); self.budget.setSuffix(' MB'); add_row(5,'Memory budget',self.budget)
         self.concurrency=W.QSpinBox();self.concurrency.setRange(1,8);self.concurrency.setValue(int(self.saved.get('concurrency',1)))
         self.concurrency.setToolTip('Maximum simultaneous analysis processes. The total estimated memory of active jobs must fit the memory budget; this is not an operating-system hard limit.')
-        form.addRow('Parallel analyses',self.concurrency)
+        add_row(5,'Parallel analyses',self.concurrency)
         self.weight=W.QComboBox(); self.weight.addItems(['area','grain'])
         for i in range(self.weight.count()):
             value=self.weight.itemText(i);self.weight.setItemData(i,value);bind_combo_item(self.weight,i,value)
-        form.addRow('ODF weighting',self.weight)
+        add_row(3,'ODF weighting',self.weight)
+        self.crystal_mode=W.QComboBox();self.crystal_mode.addItems(['v3_texture','v3_schmid','v3_variants','v3_prior_beta'])
+        self.crystal_mode.setCurrentText('v3_texture');add_row(3,'Analysis module',self.crystal_mode)
+        self.grain_mode=W.QComboBox();self.grain_mode.addItems(['v1v2','v4_quantitative'])
+        self.grain_mode.setCurrentText(self.saved.get('grain_mode','v4_quantitative'))
+        add_row(4,'Grain analysis mode',self.grain_mode)
         self.font=W.QComboBox()
         from matplotlib.font_manager import fontManager
         fonts=sorted(set(x.name for x in fontManager.ttflist)); self.font.addItems(fonts)
-        self.font.setCurrentText('Arial' if 'Arial' in fonts else 'DejaVu Sans'); form.addRow('Export font',self.font)
+        self.font.setCurrentText(self.saved.get('font','Arial' if 'Arial' in fonts else 'DejaVu Sans')); add_row(9,'Export font',self.font)
         self.formats={}
         fmtrow=W.QWidget(); fl=W.QHBoxLayout(fmtrow); fl.setContentsMargins(0,0,0,0)
         for fmt in ('png','tiff','pdf','svg'):
             cb=W.QCheckBox(fmt.upper()); cb.setChecked(fmt=='png'); fl.addWidget(cb); self.formats[fmt]=cb
-        form.addRow('Formats',fmtrow)
+        add_row(9,'Formats',fmtrow)
         self.map_checks={}
         maps_widget=W.QWidget(); ml=W.QGridLayout(maps_widget)
         for i,name in enumerate(['IPF_X','IPF_Y','IPF_Z','Phase','KAM','BC','MAD','PQ']):
             cb=W.QCheckBox(name);cb.setChecked(True);self.map_checks[name]=cb;ml.addWidget(cb,i//3,i%3)
-        form.addRow('Maps',maps_widget)
-        self.layout_select=W.QComboBox();self.layout_select.addItems(['2 × 4','2 × 3','3 × 3']);form.addRow('Panel layout',self.layout_select)
-        self.out=W.QLineEdit(self.saved.get('output_root',str(ROOT/'outputs'))); form.addRow('Output root',self.out)
-        pick=W.QPushButton('Choose output / 选择输出'); pick.clicked.connect(self.choose_output); form.addRow(pick)
-        self.run_button=W.QPushButton(); self.run_button.clicked.connect(self.start_batch); form.addRow(self.run_button)
-        self.cancel_button=W.QPushButton(); self.cancel_button.clicked.connect(self.cancel); form.addRow(self.cancel_button)
-        pause=W.QPushButton('Pause / Resume cached action');pause.clicked.connect(self.pause_action);form.addRow(pause)
-        self.resume_button=W.QPushButton('Resume batch / 恢复批次'); self.resume_button.clicked.connect(self.resume_batch); form.addRow(self.resume_button)
-        self.render_button=W.QPushButton('Render Only / 缓存重绘'); self.render_button.clicked.connect(self.render_only); form.addRow(self.render_button)
-        self.quant_button=W.QPushButton('RX / Euler / Grain Size (cache)');self.quant_button.clicked.connect(self.quantitative);form.addRow(self.quant_button)
-        self.rx_config=W.QLineEdit('{}');self.rx_config.setPlaceholderText('Phase ID → thresholds JSON');form.addRow('RX phase rules',self.rx_config)
-        self.history_button=W.QPushButton('Refresh history / 刷新历史'); self.history_button.clicked.connect(self.history); form.addRow(self.history_button)
+        add_row(2,'Maps',maps_widget)
+        add_row(2,'Preview map',self.map_select)
+        self.layout_select=W.QComboBox();self.layout_select.addItems(['2 × 4','2 × 3','3 × 3']);add_row(9,'Panel layout',self.layout_select)
+        self.out=W.QLineEdit(self.saved.get('output_root',str(ROOT/'outputs')));self.out.setObjectName('globalOutputRoot')
+        toolbar.addWidget(W.QLabel('Output'));toolbar.addWidget(self.out)
+        pick=W.QPushButton('Choose output / 选择输出');pick.clicked.connect(self.choose_output);toolbar.addWidget(pick)
+        theme=W.QPushButton('Light / Dark');theme.clicked.connect(lambda:self.set_theme(not self.dark));toolbar.addWidget(theme);self.theme_button=theme
+        self.run_button=W.QPushButton(); self.run_button.clicked.connect(self.start_batch);add_row(5,self.run_button)
+        self.crystal_run_button=W.QPushButton('Run crystallography');self.crystal_run_button.clicked.connect(self.start_batch);add_row(3,self.crystal_run_button)
+        self.grain_run_button=W.QPushButton('Run grain analysis');self.grain_run_button.clicked.connect(self.start_batch);add_row(4,self.grain_run_button)
+        self.cancel_button=W.QPushButton(); self.cancel_button.clicked.connect(self.cancel);add_row(5,self.cancel_button)
+        pause=W.QPushButton('Pause / Resume cached action');pause.clicked.connect(self.pause_action);add_row(5,pause)
+        self.resume_button=W.QPushButton('Resume batch / 恢复批次'); self.resume_button.clicked.connect(self.resume_batch);add_row(5,self.resume_button)
+        self.render_button=W.QPushButton('Render Only / 缓存重绘'); self.render_button.clicked.connect(self.render_only);add_row(9,self.render_button)
+        self.quant_button=W.QPushButton('RX / Euler / Grain Size (cache)');self.quant_button.clicked.connect(self.quantitative);add_row(4,self.quant_button)
+        self.rx_config=W.QLineEdit('{}');self.rx_config.setPlaceholderText('Phase ID → thresholds JSON');add_row(4,'RX phase rules',self.rx_config)
+        self.history_button=W.QPushButton('Refresh history / 刷新历史'); self.history_button.clicked.connect(self.history);add_row(10,self.history_button)
+        self.data_import_button=W.QPushButton('Import files');self.data_import_button.clicked.connect(self.choose_files);add_row(1,self.data_import_button)
+        self.data_folder_button=W.QPushButton('Import folder / montage');self.data_folder_button.clicked.connect(self.choose_folder);add_row(1,self.data_folder_button)
+        self.data_cache_button=W.QPushButton('Open cache');self.data_cache_button.clicked.connect(self.choose_cache);add_row(1,self.data_cache_button)
         self.tools=W.QTabWidget();self._slicing_tools();self._eds_tools()
-        form.addRow(self.tools)
-        theme=W.QPushButton('Light / Dark'); theme.clicked.connect(lambda:self.set_theme(not self.dark)); form.addRow(theme)
-        language=W.QPushButton('中文 / English'); language.clicked.connect(self.toggle_language); form.addRow(language)
-        self.panel=W.QDockWidget('Parameters / 参数',self)
-        scroll=W.QScrollArea();scroll.setWidgetResizable(True);scroll.setWidget(self.params);scroll.setMinimumWidth(310);scroll.setMaximumWidth(470)
-        self.param_scroll=scroll
-        self.panel.setWidget(scroll); self.addDockWidget(C.Qt.DockWidgetArea.RightDockWidgetArea,self.panel)
+        self.slice_page=self.tools.widget(0);self.eds_page=self.tools.widget(1);self.tools.clear()
+        # QTabWidget marks pages hidden; clear() removes their tabs without
+        # making them visible when they are subsequently reparented.
+        self.slice_page.setVisible(True);self.eds_page.setVisible(True)
+        self.parameter_forms[6].addRow(self.slice_page);self.parameter_forms[7].addRow(self.eds_page)
+        self.param_scroll=self.parameter_pages[0]
+        self.language_button=W.QPushButton('中文 / English');self.language_button.clicked.connect(self.toggle_language);add_row(11,self.language_button)
+        self.panel.setWidget(self.param_stack);self.panel.setMinimumWidth(310);self.panel.setMaximumWidth(470)
+        self.addDockWidget(C.Qt.DockWidgetArea.RightDockWidgetArea,self.panel)
         bottom=W.QDockWidget('Queue & Logs / 队列与日志',self); self.bottomtabs=W.QTabWidget()
         self.table=W.QTableWidget(0,8); self.table.setHorizontalHeaderLabels(['Source','Scan','Nx × Ny','Step µm','Phases','Shards','Est. cache MB','State'])
         self.table.horizontalHeader().setSectionResizeMode(W.QHeaderView.ResizeMode.ResizeToContents)
@@ -320,6 +374,10 @@ class Studio(W.QMainWindow):
         self.history_list=W.QListWidget(); self.history_list.itemDoubleClicked.connect(self.open_history); self.bottomtabs.addTab(self.history_list,'History')
         bottom.setWidget(self.bottomtabs); self.addDockWidget(C.Qt.DockWidgetArea.BottomDockWidgetArea,bottom)
         self._ai_tools()
+        self.parameter_forms[8].addRow(self.ai_tabs)
+        self._restore_parameter_state()
+        self._connect_parameter_persistence()
+        self.navigate(self.nav.currentRow(),activate=False)
         # Keep the first view focused on the map; all research forms scroll.
         C.QTimer.singleShot(0,lambda:self.resizeDocks([bottom],[260],C.Qt.Orientation.Vertical))
         self.workspace.set_layout(int(self.saved.get('view_count',1)));self.workspace.set_linked(bool(self.saved.get('linked_views',True)))
@@ -337,6 +395,21 @@ class Studio(W.QMainWindow):
             if hasattr(self,'export_patch_button'):self.export_patch_button.setEnabled(False)
             bind_text(self.tile_note,'Source cache changed. Preview the current patch settings before export.',self.lang)
         self.check_eds_registration()
+        self.update_slice_dimensions()
+    def update_slice_dimensions(self):
+        cache=self.viewer.cache
+        if not cache:
+            self.slice_dimensions.setText(ui(self,'Load an EBSD cache to inspect its dimensions and calibrated physical size.'))
+            return
+        try:
+            with h5py.File(cache,'r') as f:
+                height,width=map(int,f['indexed'].shape)
+                meta=json.loads(f.attrs['metadata_json'])
+            xstep=float(meta['x_step_um']);ystep=float(meta['y_step_um'])
+            self.slice_dimensions.setText(ui(self,'Scan: {width} × {height} px | step: {xstep:g} × {ystep:g} µm | field: {xsize:g} × {ysize:g} µm',
+                width=width,height=height,xstep=xstep,ystep=ystep,xsize=width*xstep,ysize=height*ystep))
+        except (OSError,KeyError,TypeError,ValueError) as exc:
+            self.slice_dimensions.setText(ui(self,'Scan dimensions unavailable: {error}',error=exc))
     @staticmethod
     def cache_stamp(path):
         if path is None:return None
@@ -389,7 +462,7 @@ class Studio(W.QMainWindow):
         self.diff_condition=W.QLineEdit('0.5 0.5');fl.addRow('Declared conditions',self.diff_condition)
         sample=W.QPushButton('Generate numeric research samples');sample.clicked.connect(self.sample_diffusion);fl.addRow(sample)
         demo=W.QPushButton('Synthetic diffusion demo — not real material');demo.clicked.connect(lambda:self.cached_action_safe('synthetic-diffusion-demo',{'epochs':self.diff_epochs.value(),'steps':self.diff_steps.value()}));fl.addRow(demo)
-        add_tab(diffusion,'Diffusion');self.bottomtabs.addTab(self.ai_tabs,'AI Research')
+        add_tab(diffusion,'Diffusion')
     def select_indexes(self):
         paths,_=W.QFileDialog.getOpenFileNames(self,ui(self,'Select patch dataset indexes'),self.out.text(),'JSON (*.json)',options=W.QFileDialog.Option.DontUseNativeDialog)
         if paths:
@@ -448,9 +521,13 @@ class Studio(W.QMainWindow):
         del blocker
         self.navigate(row,activate=False)
         for widget,text in ((self.add_files,'Import files'),(self.add_folder,'Import folder'),
-                            (self.run_button,'Run batch'),(self.cancel_button,'Cancel task')):
+                            (self.run_button,'Run batch'),(self.cancel_button,'Cancel task'),
+                            (self.theme_button,'Light / Dark'),(self.language_button,'Language'),
+                            (self.data_import_button,'Import files'),(self.data_folder_button,'Import folder / montage'),
+                            (self.data_cache_button,'Open cache')):
             bind_text(widget,text,self.lang)
         translate_widget_tree(self,self.lang)
+        for index,(source,_) in enumerate(NAV):self.parameter_titles[index].setText(ui(self,source))
         self.refresh_training_status()
         self.workspace.retranslate()
         install_qt_translator(W.QApplication.instance(),self.lang)
@@ -462,6 +539,8 @@ class Studio(W.QMainWindow):
             if data:item.setText(ui(self,data[0])+' | '+data[1])
     def _slicing_tools(self):
         widget=W.QWidget();form=W.QFormLayout(widget)
+        self.slice_dimensions=W.QLabel('Load an EBSD cache to inspect its dimensions and calibrated physical size.');self.slice_dimensions.setWordWrap(True)
+        form.addRow(self.slice_dimensions)
         self.slice_mode=W.QComboBox()
         for value,label in (('grid','Grid'),('pixels','Fixed pixel size'),('um','Fixed physical size (µm)')):
             self.slice_mode.addItem(label,value);bind_combo_item(self.slice_mode,self.slice_mode.count()-1,label)
@@ -490,6 +569,7 @@ class Studio(W.QMainWindow):
         self.eds_registration=None
         self.eds_registration_note=W.QLabel();self.eds_registration_note.setWordWrap(True);form.addRow(self.eds_registration_note)
         self.clear_eds_registration()
+        self.eds_block=W.QSpinBox();self.eds_block.setRange(1,1024);self.eds_block.setValue(32);form.addRow('EDS block rows',self.eds_block)
         edit=W.QPushButton('Edit EDS landmarks');edit.clicked.connect(self.edit_eds_registration);form.addRow(edit)
         clear=W.QPushButton('Clear manual EDS registration');clear.clicked.connect(self.clear_eds_registration);form.addRow(clear)
         self.eds_rate=W.QCheckBox('Convert explicit counts to counts/s when live time valid');form.addRow(self.eds_rate)
@@ -522,7 +602,7 @@ class Studio(W.QMainWindow):
     def eds_config(self):
         import copy
         if not self.viewer.cache:raise ValueError('Open an archived features.h5 first')
-        config={'count_rate':self.eds_rate.isChecked(),'block_rows':self.block.value()}
+        config={'count_rate':self.eds_rate.isChecked(),'block_rows':self.eds_block.value()}
         if self.eds_registration is not None:
             from ebsd_autoplot.registration import validate_landmark_config
             config['landmark_registration']=copy.deepcopy(validate_landmark_config(self.eds_registration,cache_path=self.viewer.cache))
@@ -537,9 +617,57 @@ class Studio(W.QMainWindow):
         bg,fg,field=('#18212f','#e5eaf2','#243246') if dark else ('#f3f5f8','#18212f','#ffffff')
         self.setStyleSheet(f'QWidget {{background:{bg};color:{fg};font-family:Segoe UI;font-size:12px;}} QLineEdit,QComboBox,QListWidget,QPlainTextEdit,QTableWidget {{background:{field};padding:5px;}} QPushButton {{background:{field};border:1px solid #61738b;border-radius:5px;padding:7px;}} QPushButton:hover {{border:1px solid #48a8df;}} QDockWidget::title {{padding:6px;}}')
         self.save_settings()
-    def save_settings(self):
-        atomic_json(self.preferences,{'language':self.lang,'dark':self.dark,'output_root':self.out.text(),
-            'concurrency':self.concurrency.value(),'view_count':self.workspace.view_count,'linked_views':self.workspace.linked})
+    def _parameter_state(self):
+        return {'language':self.lang,'dark':self.dark,'output_root':self.out.text(),
+            'concurrency':self.concurrency.value(),'view_count':self.workspace.view_count,'linked_views':self.workspace.linked,
+            'active_workspace':max(0,self.nav.currentRow()),'analysis_mode':self.mode.currentText(),
+            'crystal_mode':self.crystal_mode.currentText(),'grain_mode':self.grain_mode.currentText(),
+            'roi':self.roi.text(),'axis':self.axis.text(),'block_rows':self.block.value(),
+            'memory_budget_mb':self.budget.value(),'grain_threshold_deg':self.grain_threshold.value(),
+            'minimum_grain_pixels':self.min_grain_pixels.value(),'odf_weighting':self.weight.currentData(),
+            'font':self.font.currentText(),'formats':[k for k,v in self.formats.items() if v.isChecked()],
+            'maps':[k for k,v in self.map_checks.items() if v.isChecked()],
+            'panel_layout':self.layout_select.currentText(),'rx_config':self.rx_config.text(),
+            'map_preview':self.map_select.currentData() or self.map_select.currentText(),
+            'slice_mode':self.slice_mode.currentData(),'slice_rows':self.slice_y.value(),'slice_columns':self.slice_x.value(),
+            'slice_edge':self.slice_edge.currentData(),'slice_overlap':self.slice_overlap.value(),
+            'specimen_id':self.specimen.text(),'slice_include_eds':self.slice_eds.isChecked(),
+            'slice_include_grains':self.slice_grains.isChecked(),'eds_block_rows':self.eds_block.value(),
+            'eds_count_rate':self.eds_rate.isChecked()}
+    def _restore_parameter_state(self):
+        state=self.saved
+        self.mode.setCurrentText(state.get('analysis_mode',self.mode.currentText()))
+        self.crystal_mode.setCurrentText(state.get('crystal_mode',self.crystal_mode.currentText()))
+        self.grain_mode.setCurrentText(state.get('grain_mode',self.grain_mode.currentText()))
+        self.roi.setText(state.get('roi',''));self.axis.setText(state.get('axis','0 0 1'))
+        self.block.setValue(int(state.get('block_rows',32)));self.budget.setValue(int(state.get('memory_budget_mb',2048)))
+        self.grain_threshold.setValue(float(state.get('grain_threshold_deg',5)))
+        self.min_grain_pixels.setValue(int(state.get('minimum_grain_pixels',8)))
+        self.weight.setCurrentIndex(max(0,self.weight.findData(state.get('odf_weighting','area'))))
+        self.font.setCurrentText(state.get('font',self.font.currentText()))
+        for key,checkbox in self.formats.items():checkbox.setChecked(key in state.get('formats',['png']))
+        for key,checkbox in self.map_checks.items():checkbox.setChecked(key in state.get('maps',list(self.map_checks)))
+        self.layout_select.setCurrentText(state.get('panel_layout','2 × 4'));self.rx_config.setText(state.get('rx_config','{}'))
+        preview=state.get('map_preview');
+        if preview is not None:self.map_select.setCurrentIndex(max(0,self.map_select.findData(preview)))
+        self.slice_mode.setCurrentIndex(max(0,self.slice_mode.findData(state.get('slice_mode','grid'))))
+        self.slice_y.setValue(float(state.get('slice_rows',3)));self.slice_x.setValue(float(state.get('slice_columns',5)))
+        self.slice_edge.setCurrentIndex(max(0,self.slice_edge.findData(state.get('slice_edge','preserve-variable-shape'))))
+        self.slice_overlap.setValue(int(state.get('slice_overlap',0)));self.specimen.setText(state.get('specimen_id',''))
+        self.slice_eds.setChecked(bool(state.get('slice_include_eds',False)))
+        self.slice_grains.setChecked(bool(state.get('slice_include_grains',False)))
+        self.eds_block.setValue(int(state.get('eds_block_rows',32)));self.eds_rate.setChecked(bool(state.get('eds_count_rate',False)))
+        self.nav.setCurrentRow(min(max(0,int(state.get('active_workspace',0))),len(NAV)-1))
+    def _connect_parameter_persistence(self):
+        for widget in (self.mode,self.crystal_mode,self.grain_mode,self.weight,self.font,self.layout_select,
+                       self.slice_mode,self.slice_edge,self.map_select):widget.currentIndexChanged.connect(self.save_settings)
+        for widget in (*self.formats.values(),*self.map_checks.values(),self.slice_eds,self.slice_grains,self.eds_rate):
+            widget.toggled.connect(self.save_settings)
+        for widget in (self.roi,self.axis,self.rx_config,self.out,self.specimen):widget.textChanged.connect(self.save_settings)
+        for widget in (self.block,self.budget,self.concurrency,self.grain_threshold,self.min_grain_pixels,
+                       self.slice_y,self.slice_x,self.slice_overlap,self.eds_block):widget.valueChanged.connect(self.save_settings)
+    def save_settings(self,*_):
+        atomic_json(self.preferences,self._parameter_state())
     def navigate(self,row,activate=True):
         descriptions={0:'Import scans → choose analysis → run → inspect immutable results. Ctrl-drag ROI; wheel zoom; drag pan.',
             1:'Independent H5 files remain separate. Montage row shards are grouped using validated provenance.',
@@ -553,14 +681,22 @@ class Studio(W.QMainWindow):
             9:'Choose font and formats; Render Only uses the selected cache without scientific recomputation.',
             10:'Double-click an archived analysis to preview its cache. Existing results are never overwritten.',
             11:'Optional dependencies: PySide6 for Qt; torch only for AI. Tk fallback remains gui.py.'}
-        bind_text(self.help,descriptions.get(row,''),self.lang)
-        if activate and row==3:self.mode.setCurrentText('v3_texture')
-        if activate and row==4:self.mode.setCurrentText('v4_quantitative')
-        if activate and row==6:self.tools.setCurrentIndex(0)
-        if activate and row==7:self.tools.setCurrentIndex(1)
-        if activate and row in (6,7):self.param_scroll.ensureWidgetVisible(self.tools)
-        if activate and row==8:self.bottomtabs.setCurrentWidget(self.ai_tabs)
-        if activate and row==10:self.history()
+        if not 0<=row<len(NAV):row=0
+        self.content_stack.setCurrentIndex(row)
+        self.param_stack.setCurrentIndex(row);self.param_scroll=self.parameter_pages[row]
+        self.help=self.parameter_help[row]
+        self.parameter_titles[row].setText(ui(self,NAV[row][0]));bind_text(self.help,descriptions.get(row,''),self.lang)
+        if row in self.workspace_context:
+            self.workspace_context_titles[row].setText(ui(self,NAV[row][0]))
+            self.workspace_context[row].setText(ui(self,descriptions.get(row,'')))
+        if activate and row==3:
+            if self.mode.currentText().startswith('v3_'):self.crystal_mode.setCurrentText(self.mode.currentText())
+            self.mode.setCurrentText(self.crystal_mode.currentText())
+        if activate and row==4:self.mode.setCurrentText(self.grain_mode.currentText())
+        self.map_select.setVisible(row==2)
+        if activate and row==10:self.history();self.bottomtabs.setCurrentWidget(self.history_list)
+        if hasattr(self,'panel'):self.panel.setWindowTitle(ui(self,'Parameters')+' — '+ui(self,NAV[row][0]))
+        if hasattr(self,'preferences'):self.save_settings()
     def error(self,text):
         raw=str(text);translated=ui(self,raw)
         self.log.appendPlainText(ui(self,'ERROR')+': '+raw)
@@ -584,6 +720,7 @@ class Studio(W.QMainWindow):
     def imported(self,records):
         self.records=records; self.populate(records)
         bind_text(self.info,'{count} scans | {points:,} measured grid points',self.lang,count=len(records),points=sum(r['nx']*r['ny'] for r in records))
+        if records:self.nav.setCurrentRow(1)
     def populate(self,records):
         self._display_records=records
         self.table.setRowCount(len(records))
@@ -597,10 +734,12 @@ class Studio(W.QMainWindow):
         maps=[k for k,v in self.map_checks.items() if v.isChecked()]
         layout=self.layout_select.currentText().split(' × ')
         if not maps or int(layout[0])*int(layout[1])<len(maps):raise ValueError('Select maps and a layout with enough cells')
-        args=['--analysis',self.mode.currentText(),'--batch',str(self.block.value()),'--font',self.font.currentText(),
+        analysis=self.crystal_mode.currentText() if self.nav.currentRow()==3 else self.grain_mode.currentText() if self.nav.currentRow()==4 else self.mode.currentText()
+        args=['--analysis',analysis,'--batch',str(self.block.value()),'--font',self.font.currentText(),
+              '--grain-threshold',str(self.grain_threshold.value()),'--min-grain-pixels',str(self.min_grain_pixels.value()),
               '--v3-weighting',self.weight.currentData(),'--v3-load-axis',*self.axis.text().split(),'--formats',*formats,
               '--maps',*maps,'--layout',*layout]
-        if self.mode.currentText()=='v4_quantitative':args+=['--rx-threshold-json',json.dumps(json.loads(self.rx_config.text()))]
+        if analysis=='v4_quantitative':args+=['--rx-threshold-json',json.dumps(json.loads(self.rx_config.text()))]
         if self.roi.text().strip():
             vals=[int(x) for x in self.roi.text().split()]
             if len(vals)!=4 or min(vals[:2])<0 or min(vals[2:])<1:raise ValueError('ROI requires X Y WIDTH HEIGHT within scan')
@@ -690,7 +829,7 @@ class Studio(W.QMainWindow):
     def choose_cache(self):
         path,_=W.QFileDialog.getOpenFileName(self,ui(self,'Select features.h5'),self.out.text(),ui(self,'Cache (*.h5)'),options=W.QFileDialog.Option.DontUseNativeDialog)
         if path:
-            try:self.workspace.load_cache(path);self.sync_active_view()
+            try:self.workspace.load_cache(path);self.sync_active_view();self.nav.setCurrentRow(2)
             except Exception as exc:self.error(exc)
     def change_map(self,field):
         field=self.map_select.currentData()
@@ -796,7 +935,7 @@ class Studio(W.QMainWindow):
             except (OSError,ValueError,KeyError):continue
     def open_history(self,item):
         path=Path(item.data(C.Qt.ItemDataRole.UserRole)).parent/'analysis_cache/features.h5'
-        try:self.workspace.load_cache(path);self.sync_active_view()
+        try:self.workspace.load_cache(path);self.sync_active_view();self.nav.setCurrentRow(2)
         except Exception as exc:self.error(exc)
     def dragEnterEvent(self,event):
         if event.mimeData().hasUrls():event.acceptProposedAction()

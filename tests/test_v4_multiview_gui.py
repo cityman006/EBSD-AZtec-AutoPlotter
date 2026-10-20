@@ -19,7 +19,8 @@ def test_real_map_views_linked_native_camera_roi_and_language(tmp_path):
     app=W.QApplication.instance() or W.QApplication([])
     cache=tmp_path/'features.h5';cache_file(cache)
     win=Studio();win.preferences=tmp_path/'preferences.json';win.resize(1600,1100);win.show()
-    win.workspace.set_layout(4);app.processEvents()
+    win.nav.setCurrentRow(2)
+    win.workspace.set_linked(True);win.workspace.set_layout(4);app.processEvents()
     assert all(win.workspace.load_cache(cache))
     assert [v.field for v in win.workspace.views]==['BC','Phase','KAM','IPF_Z']
     first=win.workspace.views[0];first.apply_navigation({'center':(500.,400.),'scale':3.})
@@ -55,7 +56,7 @@ def test_cache_loaded_before_show_fits_active_panel_after_layout(tmp_path):
     app=W.QApplication.instance() or W.QApplication([])
     cache=tmp_path/'features.h5';cache_file(cache)
     win=Studio();win.preferences=tmp_path/'preferences.json';win.resize(1600,1100)
-    win.workspace.set_layout(4);win.workspace.load_cache(cache);win.show()
+    win.nav.setCurrentRow(2);win.workspace.set_layout(4);win.workspace.load_cache(cache);win.show()
     QtTest.QTest.qWait(180);app.processEvents()
     view=win.viewer
     ideal=min((view.viewport().width()-10)/view.width_px,(view.viewport().height()-10)/(view.height_px*view.aspect_ratio))

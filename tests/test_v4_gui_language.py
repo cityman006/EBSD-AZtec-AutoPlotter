@@ -21,7 +21,7 @@ def test_language_round_trip_keeps_user_state_and_navigation(tmp_path):
     assert win.bottomtabs.currentIndex()==tab
     assert win.block.value()==17 and win.roi.text()=='1 2 30 40'
     assert win.open_cache.text()=='打开缓存'
-    assert win.budget.parent().layout().labelForField(win.budget).text()=='内存预算'
+    assert win.parameter_forms[5].labelForField(win.budget).text()=='内存预算'
     assert win.table.horizontalHeaderItem(0).text()=='来源'
     assert 'MTEX' in win.help.text() and any('\u4e00'<=c<='\u9fff' for c in win.help.text())
     win.toggle_language()
