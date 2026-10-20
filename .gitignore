@@ -50,6 +50,10 @@ coverage.xml
 *.lcov
 .hypothesis/
 .pytest_cache/
+.pytest-tmp/
+pytest-*/
+numba-cache/
+numba-temp/
 cover/
 
 # Translations

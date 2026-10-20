@@ -2,6 +2,7 @@
 from pathlib import Path
 import numpy as np
 from .storage import transactional_output, check_cancelled
+from .v3_crystal import ORIENTATION_CONVENTION
 
 @transactional_output('path', file_target=True)
 def export_roi_ctf(source,path,x,y,w,h):
@@ -11,12 +12,18 @@ def export_roi_ctf(source,path,x,y,w,h):
     d=source.read(y,y+h,('phase','euler'))
     d={k:v[:,x:x+w] for k,v in d.items()}
     phase=d['phase'];e=d['euler']
-    if source.probe_euler_unit()=='radian':e=np.rad2deg(e)
+    source_unit=source.probe_euler_unit()
+    if source_unit=='radian':e=np.rad2deg(e)
     sp=source.phase_specs
     def cell(spec):
-        if spec['space_group'] in (194,191):return '2.951;2.951;4.684\t90;90;120\t'+spec['name']+'\t11\t194\t0'
-        if spec['space_group'] in (229,225):return '3.311;3.311;3.311\t90;90;90\t'+spec['name']+'\t11\t'+str(spec['space_group'])+'\t0'
-        raise ValueError('Manual lattice dimensions needed for '+spec['name'])
+        lattice=spec.get('lattice_parameters')
+        if not lattice:
+            raise ValueError(f'Measured lattice parameters are missing for phase {spec["name"]}; refusing to write nominal constants')
+        if int(spec['space_group']) not in (194,229):
+            raise ValueError(f'V3 MTEX export only validates Ti HCP/BCC phase symmetries, got {spec["space_group"]}')
+        dims=';'.join(f'{float(lattice[k]):.8g}' for k in ('a','b','c'))
+        angles=';'.join(f'{float(lattice[k+"_deg"]):.8g}' for k in ('alpha','beta','gamma'))
+        return dims+'\t'+angles+'\t'+spec['name']+'\t11\t'+str(spec['space_group'])+'\t0'
     path=Path(path);path.parent.mkdir(parents=True,exist_ok=True)
     with path.open('w',encoding='ascii',newline='\n') as f:
         f.write('Channel Text File\nPrj\tEBSD AutoPlotter MTEX verification\nAuthor\tEBSD-AutoPlotter\n')
@@ -29,4 +36,16 @@ def export_roi_ctf(source,path,x,y,w,h):
             for ix in range(w):
                 a,b,c=e[iy,ix]
                 f.write(f'{int(phase[iy,ix])}\t{ix*source.sx:.5f}\t{iy*source.sy:.5f}\t0\t0\t{a:.6f}\t{b:.6f}\t{c:.6f}\t0\t0\t0\n')
+    import json
+    path.with_suffix('.orientation.json').write_text(json.dumps({
+        'euler_input_unit':source_unit,'ctf_euler_unit':'degree',
+        'orientation_convention':ORIENTATION_CONVENTION,
+        'phase_id_mapping':{str(k):{'name':v['name'],'space_group':v['space_group'],
+                                    'lattice_parameters':v.get('lattice_parameters')} for k,v in sp.items()},
+        'specimen_orientation_euler':source.header.get('specimen_orientation_euler'),
+        'scanning_rotation_rad':source.header.get('scanning_rotation_rad'),
+        'rotation_policy':'preserved as source metadata; not applied to Euler values pending instrument-frame validation',
+        'roi_xywh':[int(x),int(y),int(w),int(h)],
+        'scan_path':source.scan_path,
+    },ensure_ascii=False,indent=2),encoding='utf-8')
     return path

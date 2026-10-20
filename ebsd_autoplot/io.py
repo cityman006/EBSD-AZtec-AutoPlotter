@@ -28,6 +28,18 @@ def _scalar(g, key, default=None):
     if hasattr(x, 'item'):return x.item()
     return x
 
+def _lattice_parameters(group):
+    """Read the lattice recorded in the phase header; never substitute nominal Ti values."""
+    for key in ('Lattice Dimensions','Lattice Parameters','Lattice Constants','Lattice'):
+        if key not in group or not isinstance(group[key],h5py.Dataset):continue
+        raw=np.asarray(group[key][()],dtype=float).reshape(-1)
+        if raw.size<6 or not np.all(np.isfinite(raw[:6])) or np.any(raw[:3]<=0):continue
+        a,b,c,alpha,beta,gamma=map(float,raw[:6])
+        return {'a':a,'b':b,'c':c,'alpha_deg':alpha,'beta_deg':beta,'gamma_deg':gamma,
+                'c_over_a':c/a,'source_key':key,
+                'units':str(group[key].attrs.get('Units',group[key].attrs.get('Unit','not specified')))}
+    return None
+
 @dataclass(frozen=True)
 class Part:
     path: Path
@@ -72,6 +84,8 @@ class H5Source:
                     'space_group':int(_scalar(group,'Space Group',0)),
                     'rgb': np.asarray(group['Color'][()]).reshape(-1).astype(int).tolist() if 'Color' in group else [120,120,120]
                 }
+                lattice=_lattice_parameters(group)
+                if lattice is not None:self.phase_specs[i]['lattice_parameters']=lattice
             self.header={ 'scan_path':self.scan_path,'nx':self.nx,'ny':self.ny,'x_step_um':self.sx,'y_step_um':self.sy,
                           'phase_specs':self.phase_specs,
                           'specimen_orientation_euler':np.asarray(head['Specimen Orientation Euler'][()]).tolist() if 'Specimen Orientation Euler' in head else None,
@@ -93,6 +107,9 @@ class H5Source:
                     group=head['Phases'].get(str(key))
                     if group is None or int(_scalar(group,'Space Group',0))!=spec['space_group'] or str(_scalar(group,'Phase Name','unknown'))!=spec['name']:
                         raise ValueError('Montage phase definitions disagree')
+                    shard_lattice=_lattice_parameters(group)
+                    if shard_lattice!=spec.get('lattice_parameters'):
+                        raise ValueError('Montage phase lattice definitions disagree')
                 for field,key in FIELDS.items():
                     if (key in data)!=self.available_fields[field]:raise ValueError(f'Shard fields disagree: {key}')
                     if key in data and data[key].shape[0]!=(p.stop-p.start)*self.nx:raise ValueError(f'Shard row count disagrees with manifest: {p.path.name}')

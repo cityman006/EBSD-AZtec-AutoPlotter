@@ -34,6 +34,9 @@ def write_synth(path,h=12,w=16,split=False):
             for i,(name,sg,color) in enumerate([('Titanium-Hexagonal',194,[255,0,0]),('Titanium-Cubic',229,[0,0,255])],1):
                 gp=hh.create_group('Phases/'+str(i))
                 gp['Phase Id']=[i];gp['Phase Name']=np.array([name.encode()]);gp['Space Group']=[sg];gp['Color']=[color]
+                # Synthetic fixture metadata only; production export reads the
+                # measured values from the input H5 phase header.
+                gp['Lattice Dimensions']=[2.95,2.95,4.68,90,90,120] if sg==194 else [3.30,3.30,3.30,90,90,90]
     return p
 
 

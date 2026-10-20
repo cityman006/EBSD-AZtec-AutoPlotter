@@ -43,7 +43,8 @@ def parser():
     p.add_argument('--font-size',type=float,default=12)
     p.add_argument('--formats',nargs='+',choices=['png','tiff','pdf','svg'],default=['png'])
     p.add_argument('--svg-text-mode',choices=['editable_text','text_as_paths'],default='editable_text')
-    p.add_argument('--analysis',choices=['v1','v1v2','v2','inspect','render'],default='v1')
+    p.add_argument('--analysis',choices=['v1','v1v2','v2','inspect','render',
+        'v3_texture','v3_schmid','v3_variants','v3_prior_beta'],default='v1')
     p.add_argument('--batch',type=int,default=32)
     p.add_argument('--roi',nargs=4,type=int,metavar=('X','Y','W','H'))
     p.add_argument('--grain-threshold',type=float,default=5)
@@ -51,6 +52,12 @@ def parser():
     p.add_argument('--no-ipf',action='store_true',help='Explicit unsupported-environment fallback; creates no fake IPF')
     p.add_argument('--no-render',action='store_true')
     p.add_argument('--texture',action='store_true')
+    p.add_argument('--v3-weighting',choices=['area','grain'],default='area')
+    p.add_argument('--v3-bandwidth',type=float,default=10.0)
+    p.add_argument('--v3-grid-step',type=float,default=15.0)
+    p.add_argument('--v3-max-samples',type=int,default=2000)
+    p.add_argument('--v3-seed',type=int,default=11)
+    p.add_argument('--v3-load-axis',nargs=3,type=float,default=[0.,0.,1.],metavar=('X','Y','Z'))
     p.add_argument('--mtex-roi',nargs=4,type=int,metavar=('X','Y','W','H'))
     return p
 
@@ -95,6 +102,14 @@ def main(argv=None):
                 for spec in specs:print(json.dumps(H5Source(spec).header,ensure_ascii=False,indent=2))
                 return 0
             if not args.output_root and not args.out:p.error('specify --output-root (or legacy --out) explicitly')
+            if args.analysis in ('v3_schmid','v3_variants','v3_prior_beta'):
+                try:
+                    roi=args.roi or [0,0,sources[0].nx,sources[0].ny]
+                    if len(roi)!=4 or min(roi[:2])<0 or min(roi[2:])<=0 or roi[0]+roi[2]>sources[0].nx or roi[1]+roi[3]>sources[0].ny:
+                        raise ValueError()
+                except (ValueError,IndexError):p.error('V3 grain analyses require an ROI within the scan dimensions')
+            if args.v3_bandwidth<=0 or args.v3_grid_step<=0 or args.v3_max_samples<1:p.error('V3 bandwidth, grid step and sample count must be positive')
+            opts['v3_load_axis']=tuple(args.v3_load_axis)
             failed=False
             sources=[H5Source(spec) for spec in specs]
             for source in sources:
