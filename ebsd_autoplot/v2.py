@@ -216,6 +216,8 @@ def run_v2(features_file,outdir,roi=None,threshold=5.,min_size=8,max_pixels=2200
             writer.writerow(['grain_id','phase_id','pixels','area_um2','eq_diameter_um','centroid_x_px','centroid_y_px','GOS_deg','mean_qx','mean_qy','mean_qz','mean_qw'])
             writer.writerows(rows)
         with h5py.File(outdir/'v2_grains.h5','w') as out:
+            from .storage import digest
+            out.attrs['source_features_sha256']=digest(features_file)
             out.create_dataset('grain_id',data=ids,compression='lzf')
             out.create_dataset('GROD_deg',data=grod,compression='lzf')
             out.attrs['roi_xywh']=roi if roi else (0,0,w,h)
@@ -237,7 +239,10 @@ def run_v2(features_file,outdir,roi=None,threshold=5.,min_size=8,max_pixels=2200
                 edges[pair]=edges.get(pair,0)+1
         import csv
         # Experimental alpha-variant pair flags based on ideal BOR disorientation catalogue.
-        catalogue=bor_variant_angles() if any(r[1]==1 for r in rows) else []
+        phase_metadata=json.loads(f.attrs['metadata_json'])['phase_specs']
+        alpha_ids={int(pid) for pid,spec in phase_metadata.items() if int(spec.get('space_group',0))==194
+                   and any(t in str(spec.get('name','')).casefold() for t in ('alpha','α','hcp','titanium-hex'))}
+        catalogue=bor_variant_angles() if any(r[1] in alpha_ids for r in rows) else []
         indexed={r[0]:r for r in rows}
         with (outdir/'grain_neighbour_graph.csv').open('w',encoding='utf-8',newline='') as fd:
             wr=csv.writer(fd)
@@ -245,10 +250,11 @@ def run_v2(features_file,outdir,roi=None,threshold=5.,min_size=8,max_pixels=2200
                          'nearest_BOR_variant_pair_angle_deg','BOR_candidate_within_2deg'])
             for (a,b),c in edges.items():
                 mis=ref=np.nan;match=0
-                if a in indexed and b in indexed and indexed[a][1]==1 and indexed[b][1]==1 and catalogue:
+                if a in indexed and b in indexed and indexed[a][1] in alpha_ids and indexed[a][1]==indexed[b][1] and catalogue:
+                    phase_id=int(indexed[a][1])
                     aa=np.array([indexed[a][8:12]],np.float32)
                     bb=np.array([indexed[b][8:12]],np.float32)
-                    mis=float(misorientation_deg(aa,bb,np.array([1],np.uint8),np.array([1],np.uint8),{1:{'space_group':194}})[0])
+                    mis=float(misorientation_deg(aa,bb,np.array([phase_id],np.uint8),np.array([phase_id],np.uint8),{phase_id:{'space_group':194}})[0])
                     ref=float(min(catalogue,key=lambda ang:abs(ang-mis)))
                     match=int(abs(mis-ref)<=2.)
                 wr.writerow([a,b,c,mis,ref,match])

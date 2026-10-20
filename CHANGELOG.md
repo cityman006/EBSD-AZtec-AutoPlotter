@@ -1,5 +1,15 @@
 # Changelog
 
+## V4 research development M3
+
+- Lossless original-grid HDF5 patches, deterministic uneven grids, pixel/µm
+  sizes, masks/overlap/padding, enabled-tile selection and CSV/JSON database.
+- H5OINA EDS window/timing import with all-coordinate alignment checks, original
+  cps/count units, valid count-rate conversion and per-phase intensity summaries.
+- Physical grain graphs, symmetry-aware orientations/edges, grouped Dataset and
+  optional Torch adapters. New V2 caches carry a source SHA256; mismatches fail.
+- Qt slicing preview/selection, EDS and graph actions in isolated cached runs.
+
 ## V4 research development M2
 
 - Phase-specific RX proxy, physical grain statistics, Euler maps and per-phase

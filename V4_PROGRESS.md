@@ -44,6 +44,21 @@ local observations, not extrapolated timings or scientific reference agreement.
 
 ## Subsequent milestones
 
+M3 implemented and integrated: 3x5/uneven/ROI/pixel/physical patches with exact
+seven-channel crops, masks/units/provenance, per-tile selection, CSV/JSON index;
+H5OINA flattened EDS window/timing maps with all-point coordinate verification;
+native cps preserved, valid counts-to-cps conversion, phase intensity summaries;
+physical real-grain graphs, GroupSplit and optional Torch Dataset adapters.
+Qt preview and isolated child actions for patches, EDS and graphs are runnable.
+
+Fresh M3 evidence: 19 module tests passed, 24 module+GUI+cached-action tests
+passed. Actual 1009x756 EDS import verified all 762,804 coordinate pairs and
+seven source cps arrays exactly; actual 3x5 export with EDS and grain graph
+completed in new private run directories. Source data remains read-only.
+New V2 source hashes prevent wrong-cache pairing; legacy pair identity remains
+unverified and is reported. EDS stitching across montage shards and interactive
+landmark editing remain pending. No chemical wt.% or at.% is inferred.
+
 M2 quantitative, M3 patches/EDS/graphs, M4 mechanics/diffusion modules in
 development, not yet integrated or certified. Scientific external validation
 is pending. Actual real-data labels and an independently validated surrogate

@@ -30,3 +30,42 @@ def test_language_round_trip_keeps_user_state_and_navigation(tmp_path):
     assert not any('\u4e00'<=c<='\u9fff' for c in win.help.text())
     assert win.out.text()==str(tmp_path/'个人数据')
     win.close();app.processEvents()
+
+
+def test_slicing_options_and_dynamic_preview_are_bilingual_without_parameter_changes(tmp_path):
+    from test_v4_multiview_gui import cache_file
+    app=W.QApplication.instance() or W.QApplication([])
+    path=tmp_path/'features.h5';cache_file(path)
+    win=Studio();win.preferences=tmp_path/'preferences.json';errors=[];win.error=lambda e:errors.append(str(e))
+    win.lang='en';win.translate();win.workspace.load_cache(path)
+    win.preview_patches();assert not errors
+    assert win.tile_table.rowCount()==15
+    win.slice_edge.setCurrentIndex(win.slice_edge.findData('pad-with-mask'))
+    expected=win.slice_config()
+    win.toggle_language()
+    assert win.slice_config()==expected
+    assert win.slice_mode.currentText()=='网格划分'
+    assert win.slice_edge.currentText()=='填充并保存有效掩膜'
+    assert win.tile_table.horizontalHeaderItem(0).text()=='启用'
+    assert '个几何切片' in win.tile_note.text()
+    win.toggle_language()
+    assert win.slice_config()==expected and 'geometric patches' in win.tile_note.text()
+    win.close();app.processEvents()
+
+
+def test_patch_selection_cannot_cross_source_cache_or_changed_file(tmp_path):
+    from test_v4_multiview_gui import cache_file
+    app=W.QApplication.instance() or W.QApplication([])
+    first=tmp_path/'first.h5';second=tmp_path/'second.h5';cache_file(first);cache_file(second)
+    win=Studio();win.preferences=tmp_path/'preferences.json';errors=[];actions=[]
+    win.error=lambda e:errors.append(str(e));win.cached_action=lambda *a:actions.append(a)
+    win.workspace.load_cache(first);win.preview_patches();assert not errors
+    win.workspace.load_cache(second);win.export_patches()
+    assert not actions and 'Source cache changed' in errors[-1]
+    win.preview_patches();win.export_patches();assert len(actions)==1
+    stat=second.stat();os.utime(second,ns=(stat.st_atime_ns,stat.st_mtime_ns+10000000))
+    win.export_patches();assert len(actions)==1 and 'Source cache changed' in errors[-1]
+    # A visible source switch also invalidates the old table/button immediately.
+    win.workspace.load_cache(first);win.sync_active_view()
+    assert not win.export_patch_button.isEnabled() and win.tile_table.rowCount()==0
+    win.close();app.processEvents()

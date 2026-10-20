@@ -9,6 +9,7 @@ import subprocess
 import sys
 import uuid
 import threading
+import shutil
 import queue
 import math
 from datetime import datetime
@@ -126,6 +127,10 @@ def create_batch(paths, output_root, argv=(), *, memory_budget_mb=2048, concurre
         record.update(resource_estimate=estimate, estimated_total_bytes=estimate['total_bytes'],
                       estimated_block_bytes=estimate['block_bytes'])
     root = Path(output_root).expanduser().resolve()
+    root.mkdir(parents=True,exist_ok=True)
+    estimate=sum(r['estimated_cache_bytes'] for r in records)*(2 if '--no-render' in argv else 5)
+    if shutil.disk_usage(root).free<estimate:
+        raise OSError('Insufficient free disk space for the estimated caches and exports; choose another output root')
     run = root / 'batches' / ('batch_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f') + '_' + uuid.uuid4().hex[:8])
     run.mkdir(parents=True)
     # A repeat batch may reference only a matching, independently verified run.
@@ -144,6 +149,7 @@ def create_batch(paths, output_root, argv=(), *, memory_budget_mb=2048, concurre
             'resource_policy': 'Sum of all active child estimates admitted within memory budget; not an OS hard memory cap',
             'threads_per_child': 1,
             'memory_budget_mb': memory_budget_mb, 'records': records, 'cancel': False}
+    data['estimated_disk_bytes']=estimate
     atomic_json(run / 'batch_manifest.json', data)
     return run
 

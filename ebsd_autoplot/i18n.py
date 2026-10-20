@@ -159,7 +159,18 @@ CATALOG = {
         "{count} 个几何切片 | {width} × {height} 像素 | {width_um:.3f} × {height_um:.3f} µm。导出时将保存准确的标定比例。",
     "Research GNN epoch {epoch}/{total}: validation MSE {loss}": "研究型 GNN 第 {epoch}/{total} 轮：验证 MSE {loss}",
     "DDPM epoch {epoch}/{total}: noise MSE {loss}; validation {validation}": "DDPM 第 {epoch}/{total} 轮：噪声 MSE {loss}；验证 {validation}",
+    'Source cache changed. Preview the current patch settings before export.': '源缓存已改变。导出前请重新预览当前切片设置。',
 }
+
+
+CATALOG.update({
+    "Montage row ranges and every EDS/EBSD coordinate are verified. Missing shard EDS stays unavailable; ambiguous grids require explicit registration.": "按清单行范围及全部 EDS/EBSD 坐标核对拼接。分片缺少 EDS 时保持不可用；不明确的网格须显式配准。",
+    "Edit EDS landmarks": "编辑 EDS 地标",
+    "Clear manual EDS registration": "清除手动 EDS 配准",
+    "Automatic coordinate verification; no manual EDS registration.": "自动核对坐标；未使用手动 EDS 配准。",
+    "EDS registration source or target changed. Fit or load landmarks again.": "EDS 配准的源文件或目标已改变，请重新拟合或载入地标。",
+    "Manual EDS registration: {name}; residuals are not independent validation.": "手动 EDS 配准：{name}；拟合残差不代表独立校核。",
+})
 
 ALIASES = {
     "Open cache / 打开缓存": "Open cache", "Workspace / 工作区": "Workspace", "Analysis / 分析": "Analysis",
