@@ -175,6 +175,8 @@ def export_patches(features_file, outdir, *, mode="grid", grid=(3, 5), size_px=N
                 raise ValueError("EDS grid differs; register explicitly before slicing")
             if "registration" not in eds.metadata:
                 raise ValueError("EDS must carry explicit EBSD registration metadata")
+            if eds.metadata['registration'].get('aligned_to_ebsd') is False:
+                raise ValueError("Native EDS is unregistered; fit or verify EBSD registration before slicing")
         entries = []; channel_units = {}; modalities = {"ebsd": "available", "eds": "available" if eds and eds.available else "unavailable"}
         for ordinal, (x, y, cw, ch, target) in enumerate(crops):
             if ordinal not in selected:continue

@@ -275,6 +275,7 @@ class Studio(W.QMainWindow):
             if hasattr(self,'tile_table'):self.tile_table.setRowCount(0)
             if hasattr(self,'export_patch_button'):self.export_patch_button.setEnabled(False)
             bind_text(self.tile_note,'Source cache changed. Preview the current patch settings before export.',self.lang)
+        self.check_eds_registration()
     @staticmethod
     def cache_stamp(path):
         if path is None:return None
@@ -326,9 +327,50 @@ class Studio(W.QMainWindow):
     def _eds_tools(self):
         widget=W.QWidget();form=W.QFormLayout(widget)
         text=W.QLabel('Read original H5OINA window intensities after verifying EBSD/EDS X/Y coordinates. Units remain cps or counts; no wt.% or at.%.');text.setWordWrap(True);form.addRow(text)
+        info=W.QLabel('Montage row ranges and every EDS/EBSD coordinate are verified. Missing shard EDS stays unavailable; ambiguous grids require explicit registration.');info.setWordWrap(True);form.addRow(info)
+        self.eds_registration=None
+        self.eds_registration_note=W.QLabel();self.eds_registration_note.setWordWrap(True);form.addRow(self.eds_registration_note)
+        self.clear_eds_registration()
+        edit=W.QPushButton('Edit EDS landmarks');edit.clicked.connect(self.edit_eds_registration);form.addRow(edit)
+        clear=W.QPushButton('Clear manual EDS registration');clear.clicked.connect(self.clear_eds_registration);form.addRow(clear)
         self.eds_rate=W.QCheckBox('Convert explicit counts to counts/s when live time valid');form.addRow(self.eds_rate)
-        button=W.QPushButton('Import EDS + phase statistics');button.clicked.connect(lambda:self.cached_action_safe('eds',{'count_rate':self.eds_rate.isChecked()}));form.addRow(button)
+        button=W.QPushButton('Import EDS + phase statistics');button.clicked.connect(self.import_eds);form.addRow(button)
         self.tools.addTab(widget,'EDS')
+    def clear_eds_registration(self):
+        self.eds_registration=None
+        if hasattr(self,'eds_registration_note'):
+            bind_text(self.eds_registration_note,'Automatic coordinate verification; no manual EDS registration.',self.lang)
+    def check_eds_registration(self):
+        if getattr(self,'eds_registration',None) is None:return
+        from ebsd_autoplot.registration import validate_landmark_config
+        try:
+            if not self.viewer.cache:raise ValueError('Open an archived features.h5 first')
+            validate_landmark_config(self.eds_registration,cache_path=self.viewer.cache)
+        except (ValueError,OSError,TypeError):
+            self.clear_eds_registration()
+            bind_text(self.eds_registration_note,'EDS registration source or target changed. Fit or load landmarks again.',self.lang)
+    def edit_eds_registration(self):
+        try:
+            if not self.viewer.cache:raise ValueError('Open an archived features.h5 first')
+            from ebsd_autoplot.registration_editor import LandmarkRegistrationDialog
+            dialog=LandmarkRegistrationDialog(self.viewer.cache,lang=self.lang,parent=self)
+            if self.eds_registration is not None:dialog.load_config(self.eds_registration)
+            if dialog.exec()==W.QDialog.DialogCode.Accepted:
+                self.eds_registration=dialog.registration_config()
+                bind_text(self.eds_registration_note,'Manual EDS registration: {name}; residuals are not independent validation.',self.lang,
+                          name=Path(self.eds_registration['source_path']).name)
+        except Exception as exc:self.error(exc)
+    def eds_config(self):
+        import copy
+        if not self.viewer.cache:raise ValueError('Open an archived features.h5 first')
+        config={'count_rate':self.eds_rate.isChecked(),'block_rows':self.block.value()}
+        if self.eds_registration is not None:
+            from ebsd_autoplot.registration import validate_landmark_config
+            config['landmark_registration']=copy.deepcopy(validate_landmark_config(self.eds_registration,cache_path=self.viewer.cache))
+        return config
+    def import_eds(self):
+        try:self.cached_action('eds',self.eds_config())
+        except Exception as exc:self.error(exc)
     def toggle_language(self):
         self.lang='en' if self.lang=='zh' else 'zh'; self.translate(); self.save_settings()
     def set_theme(self,dark):
@@ -547,6 +589,10 @@ class Studio(W.QMainWindow):
                 raise ValueError('Source cache changed. Preview the current patch settings before export.')
             if not hasattr(self,'tile_config') or self.tile_config!=cfg:raise ValueError('Preview the current patch settings before export')
             cfg['selected_patches']=[i for i in range(self.tile_table.rowCount()) if self.tile_table.item(i,0).checkState()==C.Qt.CheckState.Checked]
+            if cfg['include_eds']:
+                eds=self.eds_config()
+                cfg['eds_options']={k:v for k,v in eds.items() if k!='landmark_registration'}
+                if 'landmark_registration' in eds:cfg['landmark_registration']=eds['landmark_registration']
             self.cached_action('patches',cfg)
         except Exception as exc:self.error(exc)
     def history(self):

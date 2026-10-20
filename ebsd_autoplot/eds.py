@@ -23,14 +23,70 @@ class EDSResult:
     timing_maps: dict = field(default_factory=dict)
     timing_masks: dict = field(default_factory=dict)
     timing_units: dict = field(default_factory=dict)
+    _owned_arrays: list = field(default_factory=list, repr=False)
+    _temporary_files: list = field(default_factory=list, repr=False)
+    _memory_bytes: int = field(default=0, repr=False)
+
+    def allocate(self, shape, dtype):
+        """Allocate owned bounded-memory storage; close() releases only this storage."""
+        return allocate_eds_array(self, shape, dtype)
+
+    def close(self):
+        """Release only buffers allocated by this result, never caller arrays."""
+        for array in self._owned_arrays:
+            if isinstance(array, np.memmap) and not array._mmap.closed:
+                array.flush();array._mmap.close()
+        for handle in self._temporary_files:handle.close()
+        self._owned_arrays.clear();self._temporary_files.clear();self._memory_bytes=0
+
+    def __enter__(self):return self
+    def __exit__(self, *_):self.close()
+
+
+def allocate_eds_array(result, shape, dtype):
+    from .eds_montage import allocate_eds_array as allocate
+    return allocate(result, shape, dtype)
+
+
+def load_source_eds(source, *, count_rate=False, block_rows=32, registration=None):
+    """Read native EDS using authoritative H5Source row-part provenance."""
+    from .eds_montage import load_source_eds as load
+    return load(source, count_rate=count_rate, block_rows=block_rows, registration=registration)
+
+
+def load_native_h5oina_eds(path, scan_path="/1/EBSD", *, count_rate=False, block_rows=32):
+    """Read native EDS without asserting registration to any EBSD cache."""
+    from .eds_montage import load_native_h5oina_eds as load
+    return load(path, scan_path, count_rate=count_rate, block_rows=block_rows)
+
+
+def read_eds_preview(path, scan_path="/1/EBSD", channel=None, max_side=1024):
+    """Read a bounded decimated native EDS preview with an immutable source stamp."""
+    from .eds_montage import read_eds_preview as read
+    return read(path, scan_path, channel=channel, max_side=max_side)
 
 
 def _unit(dataset):
-    for key in ("Unit", "unit", "units", "Units"):
-        if key in dataset.attrs:
-            value = dataset.attrs[key]
-            return value.decode() if isinstance(value, bytes) else str(value)
-    return "unknown (not provided by source)"
+    declarations=[]
+    aliases={"cps":"cps","counts/s":"cps","count/s":"cps","cts/s":"cps","countss-1":"cps",
+             "countspersecond":"cps","countpersecond":"cps","counts":"counts","count":"counts","cts":"counts","ct":"counts",
+             "s":"s","sec":"s","second":"s","seconds":"s","ms":"ms","msec":"ms","millisecond":"ms","milliseconds":"ms",
+             "us":"us","usec":"us","microsecond":"us","microseconds":"us","um":"um","micrometer":"um","micrometre":"um",
+             "deg":"deg","degree":"deg","degrees":"deg","°":"deg","rad":"rad","radian":"rad","radians":"rad",
+             "px":"px","pixel":"px","pixels":"px"}
+    for key in dataset.attrs:
+        if str(key).casefold() not in ('unit','units'):continue
+        values=np.asarray(dataset.attrs[key]).reshape(-1)
+        if not len(values):raise ValueError('Empty unit declaration: '+dataset.name)
+        for value in values:
+            if not isinstance(value,(str,bytes,np.str_,np.bytes_)):raise ValueError('Unit declaration must be text: '+dataset.name)
+            text=value.decode('utf-8') if isinstance(value,(bytes,np.bytes_)) else str(value)
+            if not text.strip():raise ValueError('Empty unit declaration: '+dataset.name)
+            normalized=text.strip().lower().replace('µ','u').replace('μ','u').replace(' ','')
+            declarations.append((text,aliases.get(normalized,normalized)))
+    if not declarations:return "unknown (not provided by source)"
+    if len({value[1] for value in declarations})!=1:raise ValueError('Conflicting unit declarations: '+dataset.name)
+    return declarations[0][0]
 
 
 def load_eds(path, dataset_paths=None, *, expected_shape=None, energy_windows=None,
@@ -127,7 +183,7 @@ def _length_factor_um(unit):
 def _header_geometry(group):
     def scalar(name):
         values = np.asarray(group[name][()]).reshape(-1)
-        if len(values) != 1 or not np.isfinite(values[0]):
+        if len(values) != 1 or values.dtype.kind not in 'iuf' or not np.isfinite(values[0]):
             raise ValueError(f"Expected one finite H5OINA header value: {name}")
         return float(values[0])
     nx, ny = scalar("X Cells"), scalar("Y Cells")
