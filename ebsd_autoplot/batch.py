@@ -131,6 +131,28 @@ def _verified_record(record):
         return False
 
 
+def _stop_owned_child(proc, control, timeout=3):
+    """Do not leave an owned analysis running after its log consumer failed.
+
+    Normal cancellation remains cooperative. An exception in the supervising
+    process first requests the same safe checkpoint cancellation, then bounds
+    cleanup of this exact child so a subsequent sample cannot overlap it.
+    """
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        if control is not None:atomic_json(control, {'cancel':True})
+    except OSError:
+        pass  # Still stop the owned child if its control location is unavailable.
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.terminate()
+        try:proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill();proc.wait(timeout=timeout)
+
+
 def execute_batch(run, *, progress=print):
     run = Path(run).resolve(); mp = run / 'batch_manifest.json'
     with file_lock(run / '.batch.lock', timeout=.1):
@@ -145,6 +167,7 @@ def execute_batch(run, *, progress=print):
                     data['cancel'] = True; break
                 if record['status'] == 'success' and _verified_record(record):
                     progress('Verified cache: ' + record['source_name']); continue
+                proc=None;control=None;monitor_stop=None;watcher=None
                 try:
                     for item in record['source_stamp']:
                         st=Path(item['path']).stat()
@@ -174,15 +197,27 @@ def execute_batch(run, *, progress=print):
                                 ev=json.loads(line[len('JOB_EVENT '):])
                                 if ev['kind']=='analysis': record['run_path']=ev['path']
                     code=proc.wait()
-                    monitor_stop.set();watcher.join(timeout=1)
                     record.update(returncode=code, status='success' if code==0 else ('cancelled' if code==130 else 'failed'))
                     if code: record['error']='Child exit '+str(code)+'; see '+record['scan_id']+'.log'
                 except Exception as exc:
                     record.update(status='failed', error=f'{type(exc).__name__}: {exc}')
-                    progress(record['error'])
+                    try:progress(record['error'])
+                    except Exception:pass  # A broken progress consumer must not bypass child cleanup.
+                except BaseException as exc:
+                    record.update(status='interrupted',error=f'{type(exc).__name__}: {exc}')
+                    raise
+                finally:
+                    if monitor_stop is not None:monitor_stop.set()
+                    if watcher is not None:watcher.join(timeout=1)
+                    _stop_owned_child(proc,control)
+                    if proc is not None:
+                        record['returncode']=proc.returncode
+                        if proc.stdout is not None:proc.stdout.close()
                 atomic_json(mp, data); _reports(run, data)
             states=[r['status'] for r in data['records']]
-            data['status']='cancelled' if stopping() else ('failed' if 'failed' in states else 'success')
+            data['status']=('cancelled' if stopping() or 'cancelled' in states else
+                            'interrupted' if 'interrupted' in states else
+                            'failed' if any(state!='success' for state in states) else 'success')
         except BaseException:
             data['status']='interrupted'; raise
         finally:
