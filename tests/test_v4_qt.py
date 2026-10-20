@@ -89,3 +89,20 @@ def test_tile_worker_ignores_destroyed_gui_signal_at_shutdown(tmp_path):
     task=TileTask(path,'BC',1,[(0,0,4,4)],0,lambda:True)
     delete(task.signals)
     task.run()  # No GUI remains to receive this obsolete tile result.
+
+
+def test_qt_real_child_unicode_log_overrides_hostile_gbk_parent(tmp_path,monkeypatch):
+    app=W.QApplication.instance() or W.QApplication([])
+    win=Studio();win.preferences=tmp_path/'settings.json'
+    monkeypatch.setenv('PYTHONIOENCODING','gbk');monkeypatch.setenv('PYTHONUTF8','0')
+    expected='中文样品：分析完成'
+    try:
+        win.launch(['-u','-c',f'print({expected!r},flush=True)'])
+        assert win.process.waitForFinished(5000)
+        app.processEvents()
+        assert win.process.exitCode()==0
+        output=win.log.toPlainText()
+        assert expected in output and '\ufffd' not in output
+    finally:
+        if win.busy():win.process.kill();win.process.waitForFinished(5000)
+        win.close();app.processEvents()
