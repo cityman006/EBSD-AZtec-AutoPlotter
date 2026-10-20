@@ -120,6 +120,10 @@ def analyze_quantitative(features_file, v2_dir, outdir, *, formats=("png",),
         raise ValueError("Sample and ROI limits must be positive")
     outdir.mkdir(parents=True, exist_ok=True)
     with h5py.File(features_file, "r") as f, h5py.File(v2_dir / "v2_grains.h5", "r") as g:
+        from .storage import digest
+        pair_hash=g.attrs.get('source_features_sha256')
+        if pair_hash and pair_hash!=digest(features_file):
+            raise ValueError('V2 grain cache belongs to a different features file')
         metadata = json.loads(f.attrs["metadata_json"])
         if metadata.get("angular_units_input") not in ("radian", "degree"):
             raise ValueError("Cache must declare verified input Euler units")
@@ -300,6 +304,7 @@ def analyze_quantitative(features_file, v2_dir, outdir, *, formats=("png",),
         plt.close(fig)
     _csv(outdir / "grain_size_histogram.csv", histogram_rows)
     summary = {"schema_version": 1, "run_id": run_id, "configuration_hash": config_hash,
+        "cache_pair_identity": 'verified_sha256' if pair_hash else 'unverified_legacy_no_source_hash',
         "software_version": "4.0-research", "scientific_status": "exploratory; not scientifically validated for publication",
         "limitations": ["RX is an uncalibrated GOS/KAM/GROD proxy, not measured recrystallization",
                         "Grain shape and size inherit V2 segmentation, cleaning and ROI truncation",

@@ -168,10 +168,13 @@ class Studio(W.QMainWindow):
         self.quant_button=W.QPushButton('RX / Euler / Grain Size (cache)');self.quant_button.clicked.connect(self.quantitative);form.addRow(self.quant_button)
         self.rx_config=W.QLineEdit('{}');self.rx_config.setPlaceholderText('Phase ID → thresholds JSON');form.addRow('RX phase rules',self.rx_config)
         self.history_button=W.QPushButton('Refresh history / 刷新历史'); self.history_button.clicked.connect(self.history); form.addRow(self.history_button)
+        self.tools=W.QTabWidget();self._slicing_tools();self._eds_tools()
+        form.addRow(self.tools)
         theme=W.QPushButton('Light / Dark'); theme.clicked.connect(lambda:self.set_theme(not self.dark)); form.addRow(theme)
         language=W.QPushButton('中文 / English'); language.clicked.connect(self.toggle_language); form.addRow(language)
         self.panel=W.QDockWidget('Parameters / 参数',self)
         scroll=W.QScrollArea();scroll.setWidgetResizable(True);scroll.setWidget(self.params);scroll.setMinimumWidth(310);scroll.setMaximumWidth(470)
+        self.param_scroll=scroll
         self.panel.setWidget(scroll); self.addDockWidget(C.Qt.DockWidgetArea.RightDockWidgetArea,self.panel)
         bottom=W.QDockWidget('Queue & Logs / 队列与日志',self); self.bottomtabs=W.QTabWidget()
         self.table=W.QTableWidget(0,8); self.table.setHorizontalHeaderLabels(['Source','Scan','Nx × Ny','Step µm','Phases','Shards','Est. cache MB','State'])
@@ -185,6 +188,28 @@ class Studio(W.QMainWindow):
         self.add_folder.setText('导入文件夹' if self.lang=='zh' else 'Import folder')
         self.run_button.setText('运行批量分析' if self.lang=='zh' else 'Run batch')
         self.cancel_button.setText('取消任务' if self.lang=='zh' else 'Cancel task')
+    def _slicing_tools(self):
+        widget=W.QWidget();form=W.QFormLayout(widget)
+        self.slice_mode=W.QComboBox();self.slice_mode.addItems(['grid','pixels','um']);form.addRow('Mode',self.slice_mode)
+        self.slice_y=W.QDoubleSpinBox();self.slice_y.setRange(.001,100000);self.slice_y.setValue(3)
+        self.slice_x=W.QDoubleSpinBox();self.slice_x.setRange(.001,100000);self.slice_x.setValue(5)
+        form.addRow('Rows / height',self.slice_y);form.addRow('Columns / width',self.slice_x)
+        self.slice_edge=W.QComboBox();self.slice_edge.addItems(['preserve-variable-shape','pad-with-mask','drop-explicit']);form.addRow('Edges',self.slice_edge)
+        self.slice_overlap=W.QSpinBox();self.slice_overlap.setRange(0,99);self.slice_overlap.setSuffix(' %');form.addRow('Fixed-size overlap',self.slice_overlap)
+        self.specimen=W.QLineEdit();self.specimen.setPlaceholderText('Same specimen must share this ID');form.addRow('Split specimen ID',self.specimen)
+        self.slice_eds=W.QCheckBox('Include verified EDS');form.addRow(self.slice_eds)
+        self.slice_grains=W.QCheckBox('Include cached grain fields (ROI must fit)');form.addRow(self.slice_grains)
+        self.tile_note=W.QLabel('3 rows × 5 columns = 15 geometric patches; not 15 specimens');self.tile_note.setWordWrap(True);form.addRow(self.tile_note)
+        preview=W.QPushButton('Preview patch bounds / 预览切片');preview.clicked.connect(self.preview_patches);form.addRow(preview)
+        export=W.QPushButton('Export numeric patches / 导出数值');export.clicked.connect(self.export_patches);form.addRow(export)
+        graph=W.QPushButton('Build grain graph / 晶粒建图');graph.clicked.connect(lambda:self.cached_action_safe('graph',{}));form.addRow(graph)
+        self.tools.addTab(widget,'Slicing / Graph')
+    def _eds_tools(self):
+        widget=W.QWidget();form=W.QFormLayout(widget)
+        text=W.QLabel('Read original H5OINA window intensities after verifying EBSD/EDS X/Y coordinates. Units remain cps or counts; no wt.% or at.%.');text.setWordWrap(True);form.addRow(text)
+        self.eds_rate=W.QCheckBox('Convert explicit counts to counts/s when live time valid');form.addRow(self.eds_rate)
+        button=W.QPushButton('Import EDS + phase statistics');button.clicked.connect(lambda:self.cached_action_safe('eds',{'count_rate':self.eds_rate.isChecked()}));form.addRow(button)
+        self.tools.addTab(widget,'EDS')
     def toggle_language(self):
         self.lang='en' if self.lang=='zh' else 'zh'; self.translate(); self.save_settings()
     def set_theme(self,dark):
@@ -210,6 +235,9 @@ class Studio(W.QMainWindow):
         self.help.setText(descriptions.get(row,''))
         if row==3:self.mode.setCurrentText('v3_texture')
         if row==4:self.mode.setCurrentText('v4_quantitative')
+        if row==6:self.tools.setCurrentIndex(0)
+        if row==7:self.tools.setCurrentIndex(1)
+        if row in (6,7):self.param_scroll.ensureWidgetVisible(self.tools)
         if row==10:self.history()
     def error(self,text):
         self.log.appendPlainText('ERROR: '+str(text)); W.QMessageBox.warning(self,'EBSD Studio',str(text))
@@ -338,6 +366,54 @@ class Studio(W.QMainWindow):
         try:
             formats=[k for k,v in self.formats.items() if v.isChecked()]
             self.cached_action('quantitative',{'formats':formats,'font':self.font.currentText(),'thresholds':json.loads(self.rx_config.text())})
+        except Exception as exc:self.error(exc)
+    def cached_action_safe(self,action,config):
+        try:self.cached_action(action,config)
+        except Exception as exc:self.error(exc)
+    def slice_config(self):
+        if not self.viewer.cache:raise ValueError('Open features.h5 first')
+        cfg={'mode':self.slice_mode.currentText(),'edge_policy':self.slice_edge.currentText(),
+             'include_eds':self.slice_eds.isChecked(),'include_grains':self.slice_grains.isChecked()}
+        if self.specimen.text().strip():cfg['split_group']=self.specimen.text().strip()
+        if self.roi.text().strip():cfg['roi']=[int(x) for x in self.roi.text().split()]
+        vals=(self.slice_y.value(),self.slice_x.value())
+        if cfg['mode']=='grid':
+            if any(v!=int(v) for v in vals):raise ValueError('Rows and columns must be integers')
+            cfg['grid']=list(map(int,vals))
+        else:
+            with h5py.File(self.viewer.cache,'r') as f:meta=json.loads(f.attrs['metadata_json'])
+            dims=list(map(int,vals)) if cfg['mode']=='pixels' else list(vals)
+            cfg['size_px' if cfg['mode']=='pixels' else 'size_um']=dims
+            px=dims if cfg['mode']=='pixels' else [int(np.ceil(dims[0]/meta['y_step_um'])),int(np.ceil(dims[1]/meta['x_step_um']))]
+            cfg['overlap_px']=[int(v*self.slice_overlap.value()/100) for v in px]
+        return cfg
+    def preview_patches(self):
+        try:
+            from ebsd_autoplot.slicing import plan_patches
+            cfg=self.slice_config()
+            with h5py.File(self.viewer.cache,'r') as f:
+                shape=f['indexed'].shape;meta=json.loads(f.attrs['metadata_json'])
+                params={k:v for k,v in cfg.items() if k not in ('include_eds','include_grains','split_group')}
+                crops=plan_patches(shape,step_um=(meta['y_step_um'],meta['x_step_um']),**params)
+                if len(crops)>10000:raise ValueError('Preview limited to 10,000 patches; use a coarser grid')
+                if not hasattr(self,'tile_table'):
+                    self.tile_table=W.QTableWidget(0,6);self.tile_table.setHorizontalHeaderLabels(['Enabled','Patch','Pixel x y w h','Physical x0 y0 x1 y1 µm','Approx indexed %','Est bytes'])
+                    self.bottomtabs.addTab(self.tile_table,'Patch preview')
+                self.tile_table.setRowCount(len(crops));self.tile_config=cfg
+                for i,(x,y,w,h,target) in enumerate(crops):
+                    item=W.QTableWidgetItem();item.setFlags(C.Qt.ItemFlag.ItemIsEnabled|C.Qt.ItemFlag.ItemIsUserCheckable);item.setCheckState(C.Qt.CheckState.Checked);self.tile_table.setItem(i,0,item)
+                    mask=f['indexed'][y:y+h:max(1,h//64),x:x+w:max(1,w//64)]
+                    values=[f'patch_{i:05d}',f'{x} {y} {w} {h}',f'{x*meta["x_step_um"]:.3f} {y*meta["y_step_um"]:.3f} {(x+w)*meta["x_step_um"]:.3f} {(y+h)*meta["y_step_um"]:.3f}',f'{mask.mean()*100:.1f}',target[0]*target[1]*40]
+                    for j,value in enumerate(values,1):self.tile_table.setItem(i,j,W.QTableWidgetItem(str(value)))
+                self.tile_note.setText(f'{len(crops)} geometric patches | {shape[1]} × {shape[0]} pixels | {shape[1]*meta["x_step_um"]:.3f} × {shape[0]*meta["y_step_um"]:.3f} µm. Exact indexing fractions are saved at export.')
+                self.bottomtabs.setCurrentWidget(self.tile_table)
+        except Exception as exc:self.error(exc)
+    def export_patches(self):
+        try:
+            cfg=self.slice_config()
+            if not hasattr(self,'tile_config') or self.tile_config!=cfg:raise ValueError('Preview the current patch settings before export')
+            cfg['selected_patches']=[i for i in range(self.tile_table.rowCount()) if self.tile_table.item(i,0).checkState()==C.Qt.CheckState.Checked]
+            self.cached_action('patches',cfg)
         except Exception as exc:self.error(exc)
     def history(self):
         self.history_list.clear()
