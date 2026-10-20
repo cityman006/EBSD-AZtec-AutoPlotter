@@ -13,16 +13,16 @@ unmerged at `bc81e4170a7c7f6c5b117624bd74551903b230d7`.
 The independent V4 clone retains reviewed V3 operational fixes; original V3
 uncommitted files and raw experimental sources are untouched.
 
-| Stage | Branch / target | Draft PR | Implementation commit |
+| Stage | Branch / target | Draft PR | Verified feature-code commit |
 |---|---|---|---|
-| M1 | feature/v4-modern-gui-batch → feature/advanced-crystallography-v3 | [#2](https://github.com/cityman006/EBSD-AZtec-AutoPlotter/pull/2) | 44a3d00d90e727fe64293da54a07e896cdb498a0 |
-| M2 | feature/v4-ebsd-quantitative → feature/v4-modern-gui-batch | [#3](https://github.com/cityman006/EBSD-AZtec-AutoPlotter/pull/3) | 58d5e3a8b4e43da83fd011c8c70a8213993ac8d7 |
-| M3 | feature/v4-patches-eds-gnn → feature/v4-ebsd-quantitative | [#4](https://github.com/cityman006/EBSD-AZtec-AutoPlotter/pull/4) | b71ef45e7fe00a31f31ddbdc8105874edcaf522e |
-| M4 | feature/v4-mechanics-diffusion → feature/v4-patches-eds-gnn | [#5](https://github.com/cityman006/EBSD-AZtec-AutoPlotter/pull/5) | d03914320cbf7511a77760ce81c65f76f585b2e8 |
+| M1 | feature/v4-modern-gui-batch → feature/advanced-crystallography-v3 | [#2](https://github.com/cityman006/EBSD-AZtec-AutoPlotter/pull/2) | d1afd39aa0453a4e1eb712347f5da37a7b36c7d3 |
+| M2 | feature/v4-ebsd-quantitative → feature/v4-modern-gui-batch | [#3](https://github.com/cityman006/EBSD-AZtec-AutoPlotter/pull/3) | 51c8dbe653e620953e63ba3dedb9cfc727b4c5d9 |
+| M3 | feature/v4-patches-eds-gnn → feature/v4-ebsd-quantitative | [#4](https://github.com/cityman006/EBSD-AZtec-AutoPlotter/pull/4) | 9948e81bdd56e63933eeb4501a542061601abd14 |
+| M4 | feature/v4-mechanics-diffusion → feature/v4-patches-eds-gnn | [#5](https://github.com/cityman006/EBSD-AZtec-AutoPlotter/pull/5) | 1b36a9f07862850f63c1005f2b9730b9a9116dfc (followed by documentation only) |
 
 No main commits, automatic merge, force-push, or public/private setting changes.
-Each PR remains Draft and mergeable as checked after creation. M1/M2/M3 exact
-head CI passed. M4's latest head result is published by the PR's Windows checks;
+Each PR remains Draft. Earlier exact-head CI passed; latest continuation
+head results are published by each PR's Windows checks;
 the final delivery reports its observed status separately from local results.
 
 ## Implemented paths
@@ -66,11 +66,18 @@ Independent review reran six relevant cases: **6 passed, 1.60 s**. It found and
 fixed a sub-unit boundary-weight normalization error and GUI CrashExit status.
 Qt/preview/process tests cover real child launch, pause/cancel, stale map results,
 physical aspect, masks and bounded reads from an instrumented 100000×200000 grid.
-Final full Windows regression: **167 passed, 2 upstream deprecation warnings,
-57.72 s** with `.venv\Scripts\python.exe -m pytest tests -q
---basetemp=.local/test-v4-final-verified`. Existing Tk tests ran with normal
+Final full Windows regression after dev2 integration and Windows encoding fixes:
+**212 passed, 2 upstream deprecation warnings, 74.21 s** with
+`.venv\Scripts\python.exe -m pytest tests -q
+--basetemp=.local/test-v4-ui-parallel-final-utf8`. Existing Tk tests ran with normal
 desktop process permissions after a sandbox handle restriction; no tests were
 removed or validation disabled. `compileall` and `git diff --check` pass.
+
+The new acceptance checks exercise real parallel scientific children while
+language/theme/layout/map/future settings change, all-child cancellation,
+source-stamped patch selections, first-layout fit, UTF-8 chunks and inherited
+GBK settings. Independent final encoding review: **2 passed, 3.20 s**.
+See [the dev2 acceptance evidence](docs/V4_UI_PARALLEL_VALIDATION.md).
 
 Local dependency check: `pip check` passes. Python 3.12, PySide6 6.12; optional
 Torch 2.14.1+cpu was actually installed/tested, including Windows worker spawn.

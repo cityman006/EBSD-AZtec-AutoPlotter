@@ -12,6 +12,8 @@
 - Bounded Windows control-file sharing retry keeps old/new JSON atomic.
 - Bind patch previews/selections to their source cache; switching sources or
   replacing a cache requires a new preview. Handle UTF-8 log chunks correctly.
+- Force UTF-8 child streams under inherited legacy Windows encodings; preserve
+  Chinese event paths/reports. Fit linked maps after initial window layout.
 - Add actual Qt/parallel-worker interaction, cancellation, state-freezing and
   tile-shutdown checks. Scientific algorithms and validation limits unchanged.
 
