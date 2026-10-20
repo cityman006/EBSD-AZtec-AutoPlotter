@@ -269,6 +269,20 @@ class Studio(W.QMainWindow):
         selector=self.workspace.map_selectors[self.workspace.active_index]
         value=selector.currentData() or selector.currentText();index=self.map_select.findData(value)
         blocker=C.QSignalBlocker(self.map_select);self.map_select.setCurrentIndex(index);del blocker
+        preview=getattr(self,'_patch_preview_source',None)
+        if preview is not None and preview!=self.cache_stamp(self.viewer.cache):
+            self._patch_preview_source=None
+            if hasattr(self,'tile_table'):self.tile_table.setRowCount(0)
+            if hasattr(self,'export_patch_button'):self.export_patch_button.setEnabled(False)
+            bind_text(self.tile_note,'Source cache changed. Preview the current patch settings before export.',self.lang)
+    @staticmethod
+    def cache_stamp(path):
+        if path is None:return None
+        path=Path(path).resolve()
+        try:stat=path.stat()
+        except OSError:return None
+        return (os.path.normcase(str(path)),stat.st_size,stat.st_mtime_ns)
+
     def translate(self):
         row=max(0,self.nav.currentRow());blocker=C.QSignalBlocker(self.nav)
         self.nav.clear();self.nav.addItems([tr(x[0],self.lang) for x in NAV]);self.nav.setCurrentRow(row)
@@ -306,6 +320,7 @@ class Studio(W.QMainWindow):
         self.tile_note=W.QLabel('3 rows × 5 columns = 15 geometric patches; not 15 specimens');self.tile_note.setWordWrap(True);form.addRow(self.tile_note)
         preview=W.QPushButton('Preview patch bounds / 预览切片');preview.clicked.connect(self.preview_patches);form.addRow(preview)
         export=W.QPushButton('Export numeric patches / 导出数值');export.clicked.connect(self.export_patches);form.addRow(export)
+        self.export_patch_button=export;export.setEnabled(False)
         graph=W.QPushButton('Build grain graph / 晶粒建图');graph.clicked.connect(lambda:self.cached_action_safe('graph',{}));form.addRow(graph)
         self.tools.addTab(widget,'Slicing / Graph')
     def _eds_tools(self):
@@ -499,10 +514,12 @@ class Studio(W.QMainWindow):
             cfg['overlap_px']=[int(v*self.slice_overlap.value()/100) for v in px]
         return cfg
     def preview_patches(self):
+        self._patch_preview_source=None;self.export_patch_button.setEnabled(False)
         try:
             from ebsd_autoplot.slicing import plan_patches
             cfg=self.slice_config()
-            with h5py.File(self.viewer.cache,'r') as f:
+            cache=Path(self.viewer.cache).resolve();source_stamp=self.cache_stamp(cache)
+            with h5py.File(cache,'r') as f:
                 shape=f['indexed'].shape;meta=json.loads(f.attrs['metadata_json'])
                 params={k:v for k,v in cfg.items() if k not in ('include_eds','include_grains','split_group')}
                 crops=plan_patches(shape,step_um=(meta['y_step_um'],meta['x_step_um']),**params)
@@ -518,12 +535,16 @@ class Studio(W.QMainWindow):
                     for j,value in enumerate(values,1):self.tile_table.setItem(i,j,W.QTableWidgetItem(str(value)))
                 bind_text(self.tile_note,'{count} geometric patches | {width} × {height} pixels | {width_um:.3f} × {height_um:.3f} µm. Exact indexing fractions are saved at export.',self.lang,
                     count=len(crops),width=shape[1],height=shape[0],width_um=shape[1]*meta['x_step_um'],height_um=shape[0]*meta['y_step_um'])
+                if source_stamp!=self.cache_stamp(cache):raise ValueError('Source cache changed. Preview the current patch settings before export.')
+                self._patch_preview_source=source_stamp;self.export_patch_button.setEnabled(True)
                 translate_widget_tree(self,self.lang);self.workspace.retranslate()
                 self.bottomtabs.setCurrentWidget(self.tile_table)
         except Exception as exc:self.error(exc)
     def export_patches(self):
         try:
             cfg=self.slice_config()
+            if getattr(self,'_patch_preview_source',None)!=self.cache_stamp(self.viewer.cache):
+                raise ValueError('Source cache changed. Preview the current patch settings before export.')
             if not hasattr(self,'tile_config') or self.tile_config!=cfg:raise ValueError('Preview the current patch settings before export')
             cfg['selected_patches']=[i for i in range(self.tile_table.rowCount()) if self.tile_table.item(i,0).checkState()==C.Qt.CheckState.Checked]
             self.cached_action('patches',cfg)
