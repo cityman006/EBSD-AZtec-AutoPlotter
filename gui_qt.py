@@ -368,7 +368,7 @@ class Studio(W.QMainWindow):
         self.active_batch_run=batch_run;self.active_control=control
         self.process=C.QProcess(self); self.process.setWorkingDirectory(str(ROOT))
         self.process.setProcessChannelMode(C.QProcess.ProcessChannelMode.MergedChannels)
-        env=C.QProcessEnvironment.systemEnvironment(); env.insert('PYTHONUTF8','1'); self.process.setProcessEnvironment(env)
+        env=C.QProcessEnvironment.systemEnvironment(); env.insert('PYTHONUTF8','1'); env.insert('PYTHONIOENCODING','utf-8'); self.process.setProcessEnvironment(env)
         self.process.readyReadStandardOutput.connect(self.read_log)
         self.process.finished.connect(self.finished); self.process.errorOccurred.connect(self.process_error)
         self.process.start(sys.executable,args); self.run_button.setEnabled(False)

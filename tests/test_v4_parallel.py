@@ -1,5 +1,6 @@
 """Real child-process barriers and admission/cancellation invariants."""
 import json
+import csv
 import os
 from pathlib import Path
 import subprocess
@@ -244,3 +245,31 @@ def test_cli_interruption_exit_one_and_resource_budget_must_be_finite(tmp_path):
         assert main(['interrupted-batch'])==1
     for value in (float('nan'),float('inf')):
         with pytest.raises(ValueError,match='Memory budget'):create_batch([],tmp_path,memory_budget_mb=value)
+
+
+def test_child_unicode_events_and_reports_survive_hostile_parent_gbk_environment(tmp_path):
+    run,script,_=fixture_batch(tmp_path,1,concurrency=1)
+    expected=tmp_path/'材料分析'/'样品一'/'analysis_runs'/'分析_001';expected.mkdir(parents=True)
+    data=json.loads((run/'batch_manifest.json').read_text(encoding='utf-8'))
+    data['records'][0]['source_name']='样品一';atomic_json(run/'batch_manifest.json',data)
+    script.write_text("import json,sys\nprint('JOB_EVENT '+json.dumps({'kind':'analysis','path':sys.argv[1]},ensure_ascii=False),flush=True)\nprint('分析完成：样品一',flush=True)\n",encoding='utf-8')
+    original=subprocess.Popen;children=[];messages=[]
+    def actual_child(argv,**kwargs):
+        child=original([sys.executable,'-u',str(script),str(expected)],**kwargs)
+        children.append(child);return child
+    try:
+        # No monkeypatch to the Python stream: this is a real subprocess whose
+        # default stdout encoding follows the supplied hostile parent variables.
+        with patch.dict(os.environ,{'PYTHONIOENCODING':'gbk','PYTHONUTF8':'0'}),patch('ebsd_autoplot.batch.subprocess.Popen',side_effect=actual_child):
+            result=execute_batch(run,progress=messages.append)
+        assert result['status']=='success'
+        assert result['records'][0]['run_path']==str(expected)
+        manifest=json.loads((run/'batch_manifest.json').read_text(encoding='utf-8'))
+        assert manifest['records'][0]['run_path']==str(expected)
+        with (run/'batch_summary.csv').open(encoding='utf-8-sig',newline='') as source:
+            row=next(csv.DictReader(source))
+        assert row['run_path']==str(expected) and row['source_name']=='样品一'
+        log=(run/'scan0.log').read_text(encoding='utf-8')
+        assert '分析完成：样品一' in log
+        assert '\ufffd' not in log and all('\ufffd' not in message for message in messages)
+    finally:cleanup(children)

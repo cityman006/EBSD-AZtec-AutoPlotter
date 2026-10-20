@@ -18,3 +18,20 @@ def test_qt_studio_theme_language_snapshot_and_roi(tmp_path):
     snapshot=win.options();win.block.setValue(17)
     assert snapshot[snapshot.index('--batch')+1]=='32'
     win.close();app.processEvents()
+
+
+def test_qt_real_child_unicode_log_overrides_hostile_gbk_parent(tmp_path,monkeypatch):
+    app=W.QApplication.instance() or W.QApplication([])
+    win=Studio();win.preferences=tmp_path/'settings.json'
+    monkeypatch.setenv('PYTHONIOENCODING','gbk');monkeypatch.setenv('PYTHONUTF8','0')
+    expected='中文样品：分析完成'
+    try:
+        win.launch(['-u','-c',f'print({expected!r},flush=True)'])
+        assert win.process.waitForFinished(5000)
+        app.processEvents()
+        assert win.process.exitCode()==0
+        output=win.log.toPlainText()
+        assert expected in output and '\ufffd' not in output
+    finally:
+        if win.busy():win.process.kill();win.process.waitForFinished(5000)
+        win.close();app.processEvents()
