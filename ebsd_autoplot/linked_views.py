@@ -121,7 +121,7 @@ class LinkedMapWorkspace(W.QWidget):
             self._update_status(index)
 
     def eventFilter(self, watched, event):
-        if event.type() in (C.QEvent.Type.MouseButtonPress, C.QEvent.Type.FocusIn):
+        if event.type() in (C.QEvent.Type.MouseButtonPress, C.QEvent.Type.FocusIn, C.QEvent.Type.Wheel):
             for index, view in enumerate(self.views):
                 if watched is view or (hasattr(view, "viewport") and watched is view.viewport()):
                     self.set_active_view(index); break
@@ -133,6 +133,7 @@ class LinkedMapWorkspace(W.QWidget):
         changed = index != self._active
         self._active = index
         for i, frame in enumerate(self.frames):
+            self.views[i].setProperty('linked_active',i==index)
             frame.setProperty("activeView", i == index)
             frame.style().unpolish(frame); frame.style().polish(frame)
         self.retranslate()

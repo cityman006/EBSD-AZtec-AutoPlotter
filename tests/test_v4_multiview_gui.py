@@ -48,3 +48,19 @@ def test_real_map_views_linked_native_camera_roi_and_language(tmp_path):
         if hasattr(view,'generation'):view.generation+=1;view.tile_timer.stop()
     C.QThreadPool.globalInstance().waitForDone(10000);app.processEvents()
     win.close();app.processEvents()
+
+
+def test_cache_loaded_before_show_fits_active_panel_after_layout(tmp_path):
+    from PySide6 import QtTest
+    app=W.QApplication.instance() or W.QApplication([])
+    cache=tmp_path/'features.h5';cache_file(cache)
+    win=Studio();win.preferences=tmp_path/'preferences.json';win.resize(1600,1100)
+    win.workspace.set_layout(4);win.workspace.load_cache(cache);win.show()
+    QtTest.QTest.qWait(180);app.processEvents()
+    view=win.viewer
+    ideal=min((view.viewport().width()-10)/view.width_px,(view.viewport().height()-10)/(view.height_px*view.aspect_ratio))
+    try:assert view.transform().m11()==pytest.approx(ideal,rel=.05)
+    finally:
+        for v in win.workspace.views:
+            if hasattr(v,'generation'):v.generation+=1;v.tile_timer.stop()
+        C.QThreadPool.globalInstance().waitForDone(10000);app.processEvents();win.close();app.processEvents()

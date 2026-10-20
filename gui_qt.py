@@ -96,7 +96,9 @@ class MapView(W.QGraphicsView):
     def fit_map(self):
         if not self.width_px or not self.height_px:return
         factor=min(max(1,self.viewport().width()-10)/self.width_px,max(1,self.viewport().height()-10)/(self.height_px*self.aspect_ratio))
-        self.resetTransform();self.scale(factor,factor*self.aspect_ratio);self.centerOn(self.width_px/2,self.height_px/2)
+        applying=self._applying_navigation;self._applying_navigation=True
+        try:self.resetTransform();self.scale(factor,factor*self.aspect_ratio);self.centerOn(self.width_px/2,self.height_px/2)
+        finally:self._applying_navigation=applying
     def navigation_state(self):
         center=self.mapToScene(self.viewport().rect().center())
         return {'center':(center.x(),center.y()),'scale':abs(self.transform().m11())}
@@ -128,9 +130,12 @@ class MapView(W.QGraphicsView):
         pen=G.QPen(G.QColor('#f59e0b'));pen.setCosmetic(True);pen.setWidth(2)
         self.roi_item=self.scene().addRect(x,y,w,h,pen);self.roi_item.setZValue(5)
     def resizeEvent(self,event):
-        super().resizeEvent(event)
-        if not self.user_zoom:self.fit_map()
-        self._navigation_updated()
+        applying=self._applying_navigation;self._applying_navigation=True
+        try:
+            super().resizeEvent(event)
+            if not self.user_zoom:self.fit_map()
+        finally:self._applying_navigation=applying
+        if not self.user_zoom and self.property('linked_active'):self._navigation_updated()
     def wheelEvent(self,event):
         self.user_zoom=True
         self.scale(1.2 if event.angleDelta().y()>0 else 1/1.2,1.2 if event.angleDelta().y()>0 else 1/1.2)
