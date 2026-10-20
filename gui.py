@@ -9,6 +9,10 @@ except ImportError:
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk, filedialog, messagebox
+try:
+    from matplotlib import font_manager as mpl_font_manager
+except ImportError:
+    mpl_font_manager=None
 from ebsd_autoplot.jobs import JobManager
 from ebsd_autoplot.storage import atomic_json, long_path, canonical_path
 from ebsd_autoplot.archive import locate_cache
@@ -76,10 +80,20 @@ class App:
         opts=ttk.Frame(main);opts.pack(anchor='w',pady=5)
         ttk.Label(opts,text='Font').pack(side='left')
         installed_fonts=sorted(set(tkfont.families(self.root)),key=str.casefold)
+        # Tk exposes Windows localized font-family variants (for example
+        # ``Times New Roman Baltic``), while Matplotlib accepts the canonical
+        # family name only.  Keep the dropdown limited to families that the
+        # renderer can resolve so a valid selection cannot fail at render time.
+        if mpl_font_manager is not None:
+            mpl_fonts={entry.name.casefold() for entry in mpl_font_manager.fontManager.ttflist}
+            installed_fonts=[name for name in installed_fonts if name.casefold() in mpl_fonts]
         preferred_fonts=['Arial','Times New Roman','Calibri','Segoe UI','Cambria','Verdana','Tahoma','Courier New']
         font_values=[name for name in preferred_fonts if name.casefold() in {f.casefold() for f in installed_fonts}]
         font_values.extend(name for name in installed_fonts if name.casefold() not in {f.casefold() for f in font_values})
-        if self.font.get() not in font_values:font_values.insert(0,self.font.get())
+        if not font_values:
+            font_values=['DejaVu Sans']
+        if self.font.get() not in font_values:
+            self.font.set(font_values[0])
         self.font_combo=ttk.Combobox(opts,textvariable=self.font,values=font_values,state='readonly',width=22)
         self.font_combo.pack(side='left',padx=5)
         ttk.Label(opts,text='Formats').pack(side='left',padx=(8,0))

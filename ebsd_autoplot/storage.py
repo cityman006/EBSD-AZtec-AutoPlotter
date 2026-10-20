@@ -50,10 +50,31 @@ def atomic_json(path, payload):
     path = long_path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_name('.j' + uuid.uuid4().hex[:12] + '.tmp')
-    with temp.open('x', encoding='utf-8', newline='\n') as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
-        f.flush(); os.fsync(f.fileno())
-    os.replace(temp, path)  # Only control records owned by this run, or locked latest pointers.
+    created = False
+    try:
+        with temp.open('x', encoding='utf-8', newline='\n') as f:
+            created = True
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+            f.flush(); os.fsync(f.fileno())
+        # Windows readers may briefly open control JSON without delete sharing.
+        # Retain the complete old record until one atomic replacement succeeds;
+        # never fall back to truncating or writing the destination in place.
+        deadline = time.monotonic() + 2.
+        delay = .01
+        while True:
+            try:
+                os.replace(temp, path)
+                break
+            except PermissionError as exc:
+                # winerror evidence keeps ordinary POSIX/other permission errors
+                # immediate; retry only documented Windows access/sharing locks.
+                if getattr(exc, 'winerror', None) not in (5, 32, 33):raise
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:raise
+                time.sleep(min(delay, remaining))
+                delay = min(delay * 2, .1)
+    finally:
+        if created:temp.unlink(missing_ok=True)  # Only this call's private temp.
 
 @contextmanager
 def file_lock(path, timeout=30):

@@ -62,7 +62,8 @@ def _load_axis(axis):
 @transactional_output()
 def analyze_schmid(features_file, outdir, *, load_axis=(0, 0, 1), roi=None,
                    block_rows=32, stress_tensor_mpa=None, crss_mpa=None,
-                   formats=("png", "pdf", "svg"), max_pixels=2_200_000):
+                   formats=("png", "pdf", "svg"), max_pixels=2_200_000,
+                   progress=print):
     outdir = Path(outdir); outdir.mkdir(parents=True, exist_ok=True)
     load_axis = _load_axis(load_axis)
     formats = tuple(dict.fromkeys(str(x).lower().lstrip(".") for x in formats))
@@ -79,6 +80,7 @@ def analyze_schmid(features_file, outdir, *, load_axis=(0, 0, 1), roi=None,
         if any(k not in SLIP_SEEDS or not np.isfinite(float(v)) or float(v) <= 0 for k, v in crss_mpa.items()):
             raise ValueError("CRSS weights must be positive MPa values keyed by supported slip family")
     with h5py.File(features_file, "r") as f:
+        progress("Schmid: reading phase metadata")
         meta = json.loads(f.attrs["metadata_json"])
         phase_specs = {int(k): v for k, v in meta.get("phase_specs", {}).items()}
         alpha_ids = [pid for pid, spec in phase_specs.items()
@@ -125,6 +127,7 @@ def analyze_schmid(features_file, outdir, *, load_axis=(0, 0, 1), roi=None,
             for row0 in range(0, rh, max(1, int(block_rows))):
                 check_cancelled()
                 row1 = min(row0 + max(1, int(block_rows)), rh)
+                progress(f"Schmid: computing rows {row0}:{row1} of {rh}")
                 q = np.moveaxis(f["features"][0:4, y + row0:y + row1, x:x + rw], 0, -1).reshape(-1, 4)
                 ph = np.rint(f["features"][4, y + row0:y + row1, x:x + rw]).astype(np.uint8).ravel()
                 indexed = f["indexed"][y + row0:y + row1, x:x + rw].astype(bool).ravel()
@@ -208,16 +211,19 @@ def analyze_schmid(features_file, outdir, *, load_axis=(0, 0, 1), roi=None,
         "scientific_status": "exploratory; no local stress/strain or first-activated system is inferred from Schmid factor",
     }
     (outdir / "parameters.json").write_text(json.dumps(params, ensure_ascii=False, indent=2), encoding="utf-8")
-    _render_schmid(fields_path, outdir, formats)
+    progress("Schmid: exporting maps")
+    _render_schmid(fields_path, outdir, formats, progress=progress)
+    progress("Schmid: complete")
     return params
 
 
-def _render_schmid(fields_path, outdir, formats):
+def _render_schmid(fields_path, outdir, formats, progress=print):
     with h5py.File(fields_path, "r") as f:
         names = list(f["families"])
         max_name = "Schmid_Factor_Max" if "Schmid_Factor_Max" in f else "Tau_Absolute_Max_MPa"
         for name in [*names, max_name]:
             check_cancelled()
+            progress(f"Schmid: rendering {name}")
             ds = f["families"][name]["abs_m"] if name in f["families"] and "abs_m" in f["families"][name] else (
                 f["families"][name]["abs_tau_mpa"] if name in f["families"] else f[max_name])
             arr = ds[:]
@@ -234,5 +240,7 @@ def _render_schmid(fields_path, outdir, formats):
             ax.set_xlabel("ROI pixel X"); ax.set_ylabel("ROI pixel Y")
             fig.colorbar(im, ax=ax, label="dimensionless |m|" if max_name == "Schmid_Factor_Max" else "MPa")
             safe = name.replace("+", "_plus")
-            for fmt in formats: fig.savefig(outdir / f"{safe}.{fmt}", dpi=220)
+            for fmt in formats:
+                progress(f"Schmid: exporting {name} {fmt.upper()}")
+                fig.savefig(outdir / f"{safe}.{fmt}", dpi=220)
             plt.close(fig)
