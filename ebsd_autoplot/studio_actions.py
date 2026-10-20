@@ -32,6 +32,10 @@ def run_action(action,cache,output_root,*,config=None,control_file=None):
                 v2=Path(cache).parent/'v2'
                 if not (v2/'v2_grains.h5').is_file():
                     v2=run/'v2';run_v2(cache,v2,roi=config.pop('roi',None))
+                else:
+                    from .storage import validate_receipt
+                    if not validate_receipt(v2,'ebsd_autoplot.v2.run_v2'):
+                        raise ValueError('V2 cache lacks a verified transaction; create a new V2 result from the selected V1 cache')
                 analyze_quantitative(cache,v2,run/'results',**config)
             else:raise ValueError('Unknown cached action: '+action)
         manifest['status']='success'

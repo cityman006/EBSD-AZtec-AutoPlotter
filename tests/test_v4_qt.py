@@ -18,3 +18,15 @@ def test_qt_studio_theme_language_snapshot_and_roi(tmp_path):
     snapshot=win.options();win.block.setValue(17)
     assert snapshot[snapshot.index('--batch')+1]=='32'
     win.close();app.processEvents()
+
+
+def test_cached_action_owns_cancel_control(tmp_path):
+    from pathlib import Path
+    app=W.QApplication.instance() or W.QApplication([])
+    win=Studio();win.preferences=tmp_path/'preferences.json';win.out.setText(str(tmp_path))
+    win.viewer.cache=Path('features.h5');captured={}
+    win.launch=lambda args,**kw:captured.update(args=args,**kw)
+    win.cached_action('quantitative',{'formats':['png']})
+    assert captured['control']==win.control
+    assert captured['args'][captured['args'].index('--cache')+1]=='features.h5'
+    win.viewer.cache=None;win.close();app.processEvents()

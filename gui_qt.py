@@ -333,7 +333,7 @@ class Studio(W.QMainWindow):
         self.control=Path(self.out.text())/'.job_control'/('qt_action_'+uuid.uuid4().hex+'.json')
         atomic_json(self.control,{'cancel':False});self.batch_run=None
         self.launch(['-u','-m','ebsd_autoplot.studio_actions',action,'--cache',str(self.viewer.cache),
-                     '--output-root',self.out.text(),'--config',json.dumps(config),'--control-file',str(self.control)])
+                     '--output-root',self.out.text(),'--config',json.dumps(config),'--control-file',str(self.control)],control=self.control)
     def quantitative(self):
         try:
             formats=[k for k,v in self.formats.items() if v.isChecked()]
