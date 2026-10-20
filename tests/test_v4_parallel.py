@@ -177,10 +177,11 @@ def test_parallel_keyboard_interrupt_cleans_all_active_not_queued(tmp_path):
     finally:cleanup(children)
 
 
-def test_resource_snapshot_includes_baseline_mode_roi_and_legacy_default(tmp_path):
+@pytest.mark.parametrize('mode',['v1v2','v4_quantitative'])
+def test_resource_snapshot_includes_baseline_mode_roi_and_legacy_default(tmp_path,mode):
     write_synth(tmp_path/'raw',h=8,w=8)
     source=tmp_path/'raw/sample.h5oina'
-    path=create_batch([source],tmp_path/'out',['--analysis','v1v2','--roi','0','0','4','5','--no-render'],concurrency=3)
+    path=create_batch([source],tmp_path/'out',['--analysis',mode,'--roi','0','0','4','5','--no-render'],concurrency=3)
     data=json.loads((path/'batch_manifest.json').read_text());estimate=data['records'][0]['resource_estimate']
     assert data['concurrency']==3 and data['threads_per_child']==1
     assert estimate['baseline_bytes']>0 and estimate['block_bytes']>0

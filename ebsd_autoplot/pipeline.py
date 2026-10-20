@@ -182,7 +182,7 @@ def execute_analysis(run,m,source=None):
                 _mark(mp,m,'v1')
                 fp=ctx.cache_dir/'features.h5'
                 analysis_mode=opts['analysis']
-                needs_v2=(analysis_mode in ('v1v2','v3_schmid','v3_variants','v3_prior_beta') or
+                needs_v2=(analysis_mode in ('v1v2','v3_schmid','v3_variants','v3_prior_beta','v4_quantitative') or
                           (analysis_mode=='v3_texture' and opts.get('v3_weighting','area')=='grain'))
                 if needs_v2:
                     if not _receipt(ctx.cache_dir/'v2','ebsd_autoplot.v2.run_v2'):
@@ -221,6 +221,13 @@ def execute_analysis(run,m,source=None):
                                 analyze_alpha_variants(fp,ctx.cache_dir/'v2',variants,formats=opts['formats'])
                             reconstruct_prior_beta(fp,ctx.cache_dir/'v2',variants,v3root,formats=opts['formats'])
                     _mark(mp,m,'v3_'+v3_mode)
+                if analysis_mode=='v4_quantitative':
+                    from .quantitative import analyze_quantitative
+                    target=ctx.cache_dir/'v4_quantitative'/'results'
+                    if not _receipt(target,'ebsd_autoplot.quantitative.analyze_quantitative'):
+                        analyze_quantitative(fp,ctx.cache_dir/'v2',target,formats=opts['formats'],font=opts['font'],
+                            thresholds=opts.get('rx_threshold_config'),min_pixels=opts['min_grain_pixels'])
+                    _mark(mp,m,'v4_quantitative')
                 if not opts['no_render']:
                     render_only(fp,opts,ctx.render_dir,allow_partial=True)
                     _mark(mp,m,'render')

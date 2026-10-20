@@ -94,7 +94,7 @@ def _resource_estimate(record, argv):
         if min(x, y) < 0 or min(w, h) < 1 or x + w > nx or y + h > ny:
             raise ValueError('Batch ROI lies outside a selected scan')
         grain_pixels = w * h
-    grain_mode = (mode in ('v1v2', 'v2', 'v3_schmid', 'v3_variants', 'v3_prior_beta') or
+    grain_mode = (mode in ('v1v2', 'v2', 'v3_schmid', 'v3_variants', 'v3_prior_beta', 'v4_quantitative') or
                   (mode == 'v3_texture' and _option(argv, '--v3-weighting', 'area') == 'grain'))
     baseline = 256 * 1024**2
     block = nx * min(rows, ny) * 160
@@ -160,6 +160,21 @@ def _reports(run, data):
         with temp.open('w', encoding='utf-8-sig', newline='') as f:
             w = csv.DictWriter(f, fields, extrasaction='ignore'); w.writeheader(); w.writerows(rows)
         os.replace(temp, run / name)
+    numeric=[]
+    for r in data['records']:
+        if r['status']!='success' or not r.get('run_path'):continue
+        p=Path(r['run_path'])/'analysis_cache/v4_quantitative/results/sample_phase_summary.csv'
+        if p.is_file():
+            with p.open(encoding='utf-8-sig',newline='') as f:
+                for row in csv.DictReader(f):
+                    row.update(source_name=r['source_name'],sample_id=r['scan_id'],source_run_id=Path(r['run_path']).name)
+                    numeric.append(row)
+    if numeric:
+        temp=run/'.Summary.csv.tmp'
+        fields=list(dict.fromkeys(k for r in numeric for k in r))
+        with temp.open('w',encoding='utf-8-sig',newline='') as f:
+            w=csv.DictWriter(f,fields);w.writeheader();w.writerows(numeric)
+        os.replace(temp,run/'Summary.csv')
 
 
 def _verified_record(record):
@@ -178,6 +193,7 @@ def _verified_record(record):
             'v3_schmid': (cache/'v3/schmid/results', 'ebsd_autoplot.schmid.analyze_schmid'),
             'v3_variants': (cache/'v3/variants/results', 'ebsd_autoplot.alpha_variants.analyze_alpha_variants'),
             'v3_prior_beta': (cache/'v3/prior_beta/results', 'ebsd_autoplot.prior_beta.reconstruct_prior_beta')}
+        operations['v4_quantitative']=(cache/'v4_quantitative/results','ebsd_autoplot.quantitative.analyze_quantitative')
         for stage in m.get('checkpoints', {}):
             if stage in operations and not _receipt(*operations[stage]): return False
         if not m['options'].get('no_render', False):

@@ -25,6 +25,23 @@ complete bilingual control text, live GUI progress percentages, configurable
 parallel analyses, real 4K multi-monitor validation, and large real-data benchmark.
 Current preview is bounded; it must not be described as a full tiled viewer.
 
+## M2 quantitative development
+
+Added configurable RX proxy and per-phase denominators/QC, anisotropic physical
+grain descriptors, Euler scalars/RGB, true inverse-pole directions and numeric
+ODF metrics, archived cache actions and a v4_quantitative batch mode with
+Summary.csv. Unknown values are NaN with a reason, not example values.
+Corrected V3 MRD normalization with exact Haar cell weights and an algorithm ID;
+old caches are preserved and rejected for new validated metrics. Euler units
+come from attributes or the documented H5OINA contract, never magnitude.
+
+Fresh evidence: 18 M2/V3/pipeline checks passed; 13 root M2+Qt+batch integration
+checks passed. Real 1009x756 full V1/V2/quantitative/render workflow returned 0
+in 29.913 s; original raw SHA256 unchanged. Read-only 4317x4102 (17,708,334 pixels,
+1,905,189,929 byte input) streamed all rows in 6.267 s, source stat unchanged.
+Whole-process peak working set across both runs: 539,811,840 bytes. These are
+local observations, not extrapolated timings or scientific reference agreement.
+
 ## Subsequent milestones
 
 M2 quantitative, M3 patches/EDS/graphs, M4 mechanics/diffusion modules in

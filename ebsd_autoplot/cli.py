@@ -48,7 +48,9 @@ def parser():
     p.add_argument('--formats',nargs='+',choices=['png','tiff','pdf','svg'],default=['png'])
     p.add_argument('--svg-text-mode',choices=['editable_text','text_as_paths'],default='editable_text')
     p.add_argument('--analysis',choices=['v1','v1v2','v2','inspect','render',
-        'v3_texture','v3_schmid','v3_variants','v3_prior_beta'],default='v1')
+        'v3_texture','v3_schmid','v3_variants','v3_prior_beta','v4_quantitative'],default='v1')
+    p.add_argument('--rx-thresholds',help='JSON mapping source phase IDs to research RX thresholds')
+    p.add_argument('--rx-threshold-json',help='Frozen inline phase-specific research RX rules')
     p.add_argument('--batch',type=int,default=32)
     p.add_argument('--roi',nargs=4,type=int,metavar=('X','Y','W','H'))
     p.add_argument('--grain-threshold',type=float,default=5)
@@ -67,6 +69,10 @@ def parser():
 
 def main(argv=None):
     p=parser();args=p.parse_args(argv);opts=vars(args).copy()
+    if args.rx_thresholds:
+        opts['rx_threshold_config']=json.loads(Path(args.rx_thresholds).read_text(encoding='utf-8-sig'))
+    if args.rx_threshold_json:
+        opts['rx_threshold_config']=json.loads(args.rx_threshold_json)
     stop=threading.Event();old_handlers={}
     if threading.current_thread() is threading.main_thread():
         for sig in (signal.SIGINT,signal.SIGTERM):
