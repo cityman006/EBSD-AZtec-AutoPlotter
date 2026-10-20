@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 import sys
+import os
 from pathlib import Path
 import h5py
 import numpy as np
@@ -106,7 +107,14 @@ class MapView(W.QGraphicsView):
 
 class Studio(W.QMainWindow):
     def __init__(self):
-        super().__init__(); self.setWindowTitle('EBSD-AZtec AutoPlotter V4 — Materials Intelligence Studio')
+        super().__init__()
+        # Offscreen Windows Qt has no platform font database. Load local system
+        # fonts explicitly; no font files are redistributed with this project.
+        if not G.QFontDatabase.families() and os.name=='nt':
+            fonts=Path(os.environ.get('WINDIR','C:/Windows'))/'Fonts'
+            for name in ('segoeui.ttf','msyh.ttc'):
+                if (fonts/name).is_file():G.QFontDatabase.addApplicationFont(str(fonts/name))
+        self.setWindowTitle('EBSD-AZtec AutoPlotter V4 — Materials Intelligence Studio')
         self.resize(1460,920); self.setAcceptDrops(True)
         self.preferences=ROOT/'config/studio_preferences.json'
         try: self.saved=json.loads(self.preferences.read_text(encoding='utf-8'))
@@ -159,7 +167,9 @@ class Studio(W.QMainWindow):
         self.history_button=W.QPushButton('Refresh history / 刷新历史'); self.history_button.clicked.connect(self.history); form.addRow(self.history_button)
         theme=W.QPushButton('Light / Dark'); theme.clicked.connect(lambda:self.set_theme(not self.dark)); form.addRow(theme)
         language=W.QPushButton('中文 / English'); language.clicked.connect(self.toggle_language); form.addRow(language)
-        self.panel=W.QDockWidget('Parameters / 参数',self); self.panel.setWidget(self.params); self.addDockWidget(C.Qt.DockWidgetArea.RightDockWidgetArea,self.panel)
+        self.panel=W.QDockWidget('Parameters / 参数',self)
+        scroll=W.QScrollArea();scroll.setWidgetResizable(True);scroll.setWidget(self.params);scroll.setMinimumWidth(310);scroll.setMaximumWidth(470)
+        self.panel.setWidget(scroll); self.addDockWidget(C.Qt.DockWidgetArea.RightDockWidgetArea,self.panel)
         bottom=W.QDockWidget('Queue & Logs / 队列与日志',self); self.bottomtabs=W.QTabWidget()
         self.table=W.QTableWidget(0,8); self.table.setHorizontalHeaderLabels(['Source','Scan','Nx × Ny','Step µm','Phases','Shards','Est. cache MB','State'])
         self.table.horizontalHeader().setSectionResizeMode(W.QHeaderView.ResizeMode.ResizeToContents)
