@@ -30,6 +30,27 @@ class ImportWorker(C.QThread):
         except Exception as exc: self.error.emit(str(exc))
 
 
+class TileSignals(C.QObject):
+    ready=C.Signal(object)
+
+
+class TileTask(C.QRunnable):
+    def __init__(self,cache,field,generation,bounds,level,obsolete):
+        super().__init__();self.cache=cache;self.field=field;self.generation=generation
+        self.bounds=bounds;self.level=level;self.obsolete=obsolete;self.signals=TileSignals()
+    def run(self):
+        result={'generation':self.generation,'tiles':[]}
+        try:
+            from ebsd_autoplot.preview_cache import PreviewCache
+            reader=PreviewCache(self.cache,cache_root=ROOT/'.local/preview_tiles')
+            for bounds in self.bounds:
+                if self.obsolete():break
+                rgb,actual=reader.get_tile(self.field,bounds,level=self.level)
+                result['tiles'].append((rgb,actual))
+        except Exception as exc:result['error']=str(exc)
+        self.signals.ready.emit(result)
+
+
 class MapView(W.QGraphicsView):
     coordinate=C.Signal(str); roi_selected=C.Signal(tuple)
     def __init__(self):
@@ -38,28 +59,21 @@ class MapView(W.QGraphicsView):
         self.setMouseTracking(True); self.setTransformationAnchor(W.QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.cache=None; self.field='BC'; self.width_px=0; self.height_px=0; self.start=None
         self.roi_item=None
+        self.generation=0;self.tile_items=[];self.tile_jobs={};self.aspect_ratio=1;self.user_zoom=False
+        self.tile_timer=C.QTimer(self);self.tile_timer.setSingleShot(True);self.tile_timer.timeout.connect(self.request_tiles)
+        self.horizontalScrollBar().valueChanged.connect(lambda _:self.tile_timer.start(100))
+        self.verticalScrollBar().valueChanged.connect(lambda _:self.tile_timer.start(100))
     def load_cache(self, path, field='BC'):
         self.cache=Path(path); self.field=field
-        with h5py.File(self.cache,'r') as f:
-            self.height_px,self.width_px=f['indexed'].shape
-            self.meta=json.loads(f.attrs['metadata_json'])
-            step=max(1,int(np.ceil(max(self.width_px,self.height_px)/1400)))
-            if field.startswith('IPF'):
-                key='ipf_'+field[-1]
-                if key not in f: raise ValueError('Selected cache has no calibrated orientation IPF data')
-                arr=f[key][::step,::step,:]
-            elif field=='Phase':
-                ph=f['features'][4,::step,::step].astype(int); arr=np.zeros((*ph.shape,3),np.uint8)
-                for key,spec in self.meta['phase_specs'].items(): arr[ph==int(key)]=spec['rgb']
-            else:
-                values=f['features'][5 if field=='KAM' else 6,::step,::step]
-                valid=f['kam_valid' if field=='KAM' else 'indexed'][::step,::step]>0
-                from matplotlib import colormaps
-                arr=(colormaps['viridis' if field=='KAM' else 'gray'](np.clip(values/(5 if field=='KAM' else 255),0,1))[...,:3]*255).astype('u1')
-                arr[~valid]=0
+        from ebsd_autoplot.preview_cache import PreviewCache
+        reader=PreviewCache(self.cache,cache_root=ROOT/'.local/preview_tiles')
+        self.height_px,self.width_px=reader.native_shape;self.meta=reader.metadata
+        self.aspect_ratio=float(self.meta['y_step_um'])/float(self.meta['x_step_um'])
+        arr,_=reader.preview(field,max_side=1400)
         self._image(arr, self.width_px, self.height_px)
     def load_image(self, path):
         self.cache=None
+        self.aspect_ratio=1
         reader=G.QImageReader(str(path)); size=reader.size()
         self.width_px=size.width(); self.height_px=size.height()
         reader.setScaledSize(size.scaled(1600,1600,C.Qt.AspectRatioMode.KeepAspectRatio))
@@ -71,11 +85,46 @@ class MapView(W.QGraphicsView):
         img=G.QImage(arr.data,arr.shape[1],arr.shape[0],arr.strides[0],G.QImage.Format.Format_RGB888).copy()
         self._set_pixmap(G.QPixmap.fromImage(img),width,height)
     def _set_pixmap(self,pix,width,height):
+        self.generation+=1;self.tile_items=[];self.user_zoom=False
         self.scene().clear(); self.roi_item=None
         item=self.scene().addPixmap(pix); item.setTransform(G.QTransform.fromScale(width/pix.width(),height/pix.height()))
-        self.scene().setSceneRect(0,0,width,height); self.fitInView(self.sceneRect(),C.Qt.AspectRatioMode.KeepAspectRatio)
+        self.scene().setSceneRect(0,0,width,height);self.fit_map();self.tile_timer.start(80)
+    def fit_map(self):
+        if not self.width_px or not self.height_px:return
+        factor=min(max(1,self.viewport().width()-10)/self.width_px,max(1,self.viewport().height()-10)/(self.height_px*self.aspect_ratio))
+        self.resetTransform();self.scale(factor,factor*self.aspect_ratio);self.centerOn(self.width_px/2,self.height_px/2)
+    def resizeEvent(self,event):
+        super().resizeEvent(event)
+        if not self.user_zoom:self.fit_map()
+        self.tile_timer.start(80)
     def wheelEvent(self,event):
+        self.user_zoom=True
         self.scale(1.2 if event.angleDelta().y()>0 else 1/1.2,1.2 if event.angleDelta().y()>0 else 1/1.2)
+        self.tile_timer.start(80)
+    def request_tiles(self):
+        if not self.cache or not self.width_px:return
+        rect=self.mapToScene(self.viewport().rect()).boundingRect().intersected(self.sceneRect())
+        if rect.isEmpty():return
+        level=max(0,int(np.floor(np.log2(1/max(abs(self.transform().m11()),1e-12)))))
+        span=512*(2**level);bounds=[]
+        for y in range(max(0,int(rect.y())//span*span),min(self.height_px,int(np.ceil(rect.bottom()))),span):
+            for x in range(max(0,int(rect.x())//span*span),min(self.width_px,int(np.ceil(rect.right()))),span):
+                bounds.append((x,y,min(span,self.width_px-x),min(span,self.height_px-y)))
+        self.generation+=1;generation=self.generation
+        task=TileTask(self.cache,self.field,generation,bounds[:16],level,lambda:self.generation!=generation)
+        self.tile_jobs[generation]=task;task.signals.ready.connect(self.accept_tiles)
+        C.QThreadPool.globalInstance().start(task)
+    @C.Slot(object)
+    def accept_tiles(self,result):
+        self.tile_jobs.pop(result['generation'],None)
+        if result['generation']!=self.generation or result.get('error'):return
+        for item in self.tile_items:self.scene().removeItem(item)
+        self.tile_items=[]
+        for rgb,(x,y,w,h) in result['tiles']:
+            arr=np.ascontiguousarray(rgb);img=G.QImage(arr.data,arr.shape[1],arr.shape[0],arr.strides[0],G.QImage.Format.Format_RGB888).copy()
+            item=self.scene().addPixmap(G.QPixmap.fromImage(img));item.setPos(x,y)
+            item.setTransform(G.QTransform.fromScale(w/arr.shape[1],h/arr.shape[0]));item.setZValue(1);self.tile_items.append(item)
+        if self.roi_item:self.roi_item.setZValue(5)
     def mousePressEvent(self,event):
         if event.modifiers() & C.Qt.KeyboardModifier.ControlModifier:
             self.start=self.mapToScene(event.position().toPoint()); event.accept(); return
@@ -131,6 +180,7 @@ class Studio(W.QMainWindow):
         self.open_cache=W.QPushButton('Open cache / 打开缓存'); self.open_cache.clicked.connect(self.choose_cache); toolbar.addWidget(self.open_cache)
         self.map_select=W.QComboBox(); self.map_select.addItems(['BC','Phase','KAM','IPF_X','IPF_Y','IPF_Z']); self.map_select.currentTextChanged.connect(self.change_map); toolbar.addWidget(self.map_select)
         self.info=W.QLabel('Import H5 / H5OINA — AZtec color not calibrated'); toolbar.addWidget(self.info)
+        self.task_status=W.QLabel('IDLE');toolbar.addWidget(self.task_status)
         self.nav=W.QListWidget(); self.nav.currentRowChanged.connect(self.navigate)
         left=W.QDockWidget('Workspace / 工作区',self); left.setWidget(self.nav); self.addDockWidget(C.Qt.DockWidgetArea.LeftDockWidgetArea,left)
         self.viewer=MapView(); self.viewer.coordinate.connect(self.statusBar().showMessage); self.viewer.roi_selected.connect(self.set_roi)
@@ -163,6 +213,7 @@ class Studio(W.QMainWindow):
         pick=W.QPushButton('Choose output / 选择输出'); pick.clicked.connect(self.choose_output); form.addRow(pick)
         self.run_button=W.QPushButton(); self.run_button.clicked.connect(self.start_batch); form.addRow(self.run_button)
         self.cancel_button=W.QPushButton(); self.cancel_button.clicked.connect(self.cancel); form.addRow(self.cancel_button)
+        pause=W.QPushButton('Pause / Resume cached action');pause.clicked.connect(self.pause_action);form.addRow(pause)
         self.resume_button=W.QPushButton('Resume batch / 恢复批次'); self.resume_button.clicked.connect(self.resume_batch); form.addRow(self.resume_button)
         self.render_button=W.QPushButton('Render Only / 缓存重绘'); self.render_button.clicked.connect(self.render_only); form.addRow(self.render_button)
         self.quant_button=W.QPushButton('RX / Euler / Grain Size (cache)');self.quant_button.clicked.connect(self.quantitative);form.addRow(self.quant_button)
@@ -182,6 +233,100 @@ class Studio(W.QMainWindow):
         self.bottomtabs.addTab(self.table,'Data / Queue'); self.log=W.QPlainTextEdit(); self.log.setReadOnly(True); self.log.setMaximumBlockCount(10000); self.bottomtabs.addTab(self.log,'Logs')
         self.history_list=W.QListWidget(); self.history_list.itemDoubleClicked.connect(self.open_history); self.bottomtabs.addTab(self.history_list,'History')
         bottom.setWidget(self.bottomtabs); self.addDockWidget(C.Qt.DockWidgetArea.BottomDockWidgetArea,bottom)
+        self._ai_tools()
+        # Keep the first view focused on the map; all research forms scroll.
+        C.QTimer.singleShot(0,lambda:self.resizeDocks([bottom],[260],C.Qt.Orientation.Vertical))
+    def _ai_tools(self):
+        self.training_path='';self.diffusion_path='';self.index_paths=[]
+        self.ai_tabs=W.QTabWidget()
+        def add_tab(widget,title):
+            scroll=W.QScrollArea();scroll.setWidgetResizable(True);scroll.setWidget(widget)
+            scroll.setMinimumHeight(170);self.ai_tabs.addTab(scroll,title)
+        dataset=W.QWidget();dl=W.QFormLayout(dataset)
+        note=W.QLabel('Research only. Use original specimen/scan groups. At least 3 independent groups are required; patches from one scan are not independent samples.');note.setWordWrap(True);dl.addRow(note)
+        self.index_label=W.QLabel('No patch databases selected');dl.addRow(self.index_label)
+        choose=W.QPushButton('Select dataset_index.json files');choose.clicked.connect(self.select_indexes);dl.addRow(choose)
+        split=W.QPushButton('Export protected GroupSplit');split.clicked.connect(lambda:self.cached_action_safe('dataset-split',{'index_files':self.index_paths}));dl.addRow(split)
+        self.workflow=W.QComboBox();self.workflow.addItems(['mechanics-import','graph-training-bundle','diffusion-bundle','infer-supervised'])
+        dl.addRow('Validated workflow',self.workflow)
+        self.workflow_config=W.QPlainTextEdit('{}');self.workflow_config.setMaximumHeight(100);dl.addRow('JSON configuration',self.workflow_config)
+        load=W.QPushButton('Load workflow JSON');load.clicked.connect(self.select_workflow_json);dl.addRow(load)
+        execute=W.QPushButton('Run configured workflow');execute.clicked.connect(self.run_workflow);dl.addRow(execute)
+        add_tab(dataset,'Dataset Builder')
+        graph=W.QWidget();gl=W.QFormLayout(graph)
+        description=W.QLabel('One-hop learned mean-message GNN. Node responses require independently measured/simulated labels matched to the same specimen.');description.setWordWrap(True);gl.addRow(description)
+        build=W.QPushButton('Build graph from selected cache');build.clicked.connect(lambda:self.cached_action_safe('graph',{}));gl.addRow(build)
+        bundle=W.QPushButton('Select labeled training bundle NPZ');bundle.clicked.connect(self.select_training_bundle);gl.addRow(bundle)
+        self.gnn_status=W.QLabel('No labels: supervised GNN disabled');self.gnn_status.setWordWrap(True);gl.addRow(self.gnn_status)
+        self.epochs=W.QSpinBox();self.epochs.setRange(1,100000);self.epochs.setValue(120);gl.addRow('Epochs',self.epochs)
+        self.weight_resume=W.QLineEdit();self.weight_resume.setPlaceholderText('Optional complete checkpoint directory');gl.addRow('Weight resume',self.weight_resume)
+        self.train_gnn=W.QPushButton('Train GNN with labels');self.train_gnn.setEnabled(False);self.train_gnn.clicked.connect(lambda:self.train_model('gnn'));gl.addRow(self.train_gnn)
+        demo=W.QPushButton('Synthetic GNN demo — software test only');demo.clicked.connect(lambda:self.cached_action_safe('synthetic-gnn-demo',{'epochs':self.epochs.value()}));gl.addRow(demo)
+        add_tab(graph,'GNN Graphs')
+        mechanics=W.QWidget();ml=W.QFormLayout(mechanics)
+        explanation=W.QLabel('No mechanics truth is inferred from EBSD/EDS. Import DIC strain or declared HR-EBSD/CPFE/FEM labels through Dataset Builder. DIC alone does not establish full stress. Ridge is a numeric baseline, not U-Net/FNO.');explanation.setWordWrap(True);ml.addRow(explanation)
+        self.mechanics_status=W.QLabel('No labels: supervised mechanics disabled');self.mechanics_status.setWordWrap(True);ml.addRow(self.mechanics_status)
+        choose_labels=W.QPushButton('Select independently labeled NPZ');choose_labels.clicked.connect(self.select_training_bundle);ml.addRow(choose_labels)
+        self.train_ridge=W.QPushButton('Fit CPU ridge baseline with labels');self.train_ridge.setEnabled(False);self.train_ridge.clicked.connect(lambda:self.train_model('ridge'));ml.addRow(self.train_ridge)
+        explain=W.QLabel('Inference uses a checkpoint and a schema-compatible numeric feature bundle; labels are unnecessary for inference. Set workflow to infer-supervised and provide checkpoint + bundle_path.');explain.setWordWrap(True);ml.addRow(explain)
+        add_tab(mechanics,'Mechanics Prediction')
+        diffusion=W.QWidget();fl=W.QFormLayout(diffusion)
+        explanation=W.QLabel('Conditional DDPM of numeric xyzw orientation/phase fields. Tiny CPU research baseline (≤4096 encoded variables/tile); no validated mechanical inverse design.');explanation.setWordWrap(True);fl.addRow(explanation)
+        choose_diff=W.QPushButton('Select numeric diffusion bundle NPZ');choose_diff.clicked.connect(self.select_diffusion_bundle);fl.addRow(choose_diff)
+        self.diff_status=W.QLabel('No numeric dataset selected');self.diff_status.setWordWrap(True);fl.addRow(self.diff_status)
+        self.diff_epochs=W.QSpinBox();self.diff_epochs.setRange(1,100000);self.diff_epochs.setValue(20);fl.addRow('Epochs',self.diff_epochs)
+        self.diff_steps=W.QSpinBox();self.diff_steps.setRange(4,1000);self.diff_steps.setValue(8);fl.addRow('Diffusion steps',self.diff_steps)
+        self.train_ddpm=W.QPushButton('Train research DDPM');self.train_ddpm.setEnabled(False);self.train_ddpm.clicked.connect(self.train_diffusion);fl.addRow(self.train_ddpm)
+        self.diff_checkpoint=W.QLineEdit();fl.addRow('Checkpoint directory',self.diff_checkpoint)
+        self.diff_condition=W.QLineEdit('0.5 0.5');fl.addRow('Declared conditions',self.diff_condition)
+        sample=W.QPushButton('Generate numeric research samples');sample.clicked.connect(self.sample_diffusion);fl.addRow(sample)
+        demo=W.QPushButton('Synthetic diffusion demo — not real material');demo.clicked.connect(lambda:self.cached_action_safe('synthetic-diffusion-demo',{'epochs':self.diff_epochs.value(),'steps':self.diff_steps.value()}));fl.addRow(demo)
+        add_tab(diffusion,'Diffusion');self.bottomtabs.addTab(self.ai_tabs,'AI Research')
+    def select_indexes(self):
+        paths,_=W.QFileDialog.getOpenFileNames(self,'Select patch dataset indexes',self.out.text(),'JSON (*.json)')
+        if paths:self.index_paths=paths;self.index_label.setText(f'{len(paths)} patch databases selected; specimen IDs must be checked')
+    def select_workflow_json(self):
+        path,_=W.QFileDialog.getOpenFileName(self,'Workflow configuration','','JSON (*.json)')
+        if path:
+            try:self.workflow_config.setPlainText(json.dumps(json.loads(Path(path).read_text(encoding='utf-8-sig')),indent=2))
+            except Exception as exc:self.error(exc)
+    def run_workflow(self):
+        try:self.cached_action(self.workflow.currentText(),json.loads(self.workflow_config.toPlainText()))
+        except Exception as exc:self.error(exc)
+    def select_training_bundle(self):
+        path,_=W.QFileDialog.getOpenFileName(self,'Labeled training bundle','','NumPy (*.npz)')
+        if not path:return
+        try:
+            with np.load(path,allow_pickle=False) as f:
+                if not {'features','labels','groups','metadata_json'}<=set(f.files):raise ValueError('No actual labels/groups/schema: supervised training remains disabled')
+                meta=json.loads(str(f['metadata_json'].item()))
+                if meta.get('label_metadata',{}).get('source_type') not in ('DIC','HR_EBSD','CPFE','FEM','EXPERIMENT','SYNTHETIC'):
+                    raise ValueError('Mechanics label provenance is missing or unsupported')
+            self.training_path=path;self.train_gnn.setEnabled(True);self.train_ridge.setEnabled(True)
+            message=('SYNTHETIC DEMO ONLY' if meta.get('synthetic_demo') else 'Label schema found; full QC is checked in worker')+' | '+Path(path).name
+            self.gnn_status.setText(message);self.mechanics_status.setText(message)
+        except Exception as exc:
+            self.training_path='';self.train_gnn.setEnabled(False);self.train_ridge.setEnabled(False);self.error(exc)
+    def train_model(self,model):
+        if not self.training_path:self.error('Actual labels are required');return
+        cfg={'bundle_path':self.training_path,'model':model,'epochs':self.epochs.value()}
+        if self.weight_resume.text().strip():cfg['resume_from']=self.weight_resume.text().strip()
+        self.cached_action_safe('train-supervised',cfg)
+    def select_diffusion_bundle(self):
+        path,_=W.QFileDialog.getOpenFileName(self,'Numeric DDPM bundle','','NumPy (*.npz)')
+        if not path:return
+        try:
+            with np.load(path,allow_pickle=False) as f:
+                if not {'quaternion_xyzw','phase_id','groups','metadata_json'}<=set(f.files):raise ValueError('DDPM needs numeric orientation/phase fields and independent groups')
+            self.diffusion_path=path;self.train_ddpm.setEnabled(True);self.diff_status.setText(Path(path).name+' | research QC checked in worker')
+        except Exception as exc:self.diffusion_path='';self.train_ddpm.setEnabled(False);self.error(exc)
+    def train_diffusion(self):
+        cfg={'bundle_path':self.diffusion_path,'epochs':self.diff_epochs.value(),'steps':self.diff_steps.value()}
+        if self.weight_resume.text().strip():cfg['resume_from']=self.weight_resume.text().strip()
+        self.cached_action_safe('train-diffusion',cfg)
+    def sample_diffusion(self):
+        try:self.cached_action('sample-diffusion',{'checkpoint':self.diff_checkpoint.text(),'condition':[float(v) for v in self.diff_condition.text().split()]})
+        except Exception as exc:self.error(exc)
     def translate(self):
         self.nav.clear(); self.nav.addItems([x[1 if self.lang=='zh' else 0] for x in NAV]); self.nav.setCurrentRow(0)
         self.add_files.setText('导入文件' if self.lang=='zh' else 'Import files')
@@ -238,6 +383,7 @@ class Studio(W.QMainWindow):
         if row==6:self.tools.setCurrentIndex(0)
         if row==7:self.tools.setCurrentIndex(1)
         if row in (6,7):self.param_scroll.ensureWidgetVisible(self.tools)
+        if row==8:self.bottomtabs.setCurrentWidget(self.ai_tabs)
         if row==10:self.history()
     def error(self,text):
         self.log.appendPlainText('ERROR: '+str(text)); W.QMessageBox.warning(self,'EBSD Studio',str(text))
@@ -300,22 +446,36 @@ class Studio(W.QMainWindow):
         self.process.readyReadStandardOutput.connect(self.read_log)
         self.process.finished.connect(self.finished); self.process.errorOccurred.connect(self.process_error)
         self.process.start(sys.executable,args); self.run_button.setEnabled(False)
+        self.task_status.setText('RUNNING')
     def process_error(self,error):
         self.log.appendPlainText('Process error: '+str(error))
         if error==C.QProcess.ProcessError.FailedToStart:
             self.active_batch_run=None;self.active_control=None;self.run_button.setEnabled(True)
             self.log.appendPlainText('FAILED: process could not start')
-    def read_log(self):self.log.appendPlainText(bytes(self.process.readAllStandardOutput()).decode('utf-8',errors='replace').rstrip())
+            self.task_status.setText('FAILED: process could not start')
+    def read_log(self):
+        text=bytes(self.process.readAllStandardOutput()).decode('utf-8',errors='replace').rstrip()
+        self.log.appendPlainText(text)
+        for line in text.splitlines():
+            if line.startswith(('Research GNN epoch','DDPM epoch','PAUSED','RESUMED')):self.task_status.setText(line[:115])
     def finished(self,code,status):
         self.read_log(); self.run_button.setEnabled(True)
         self.active_batch_run=None;self.active_control=None
-        self.log.appendPlainText('SUCCESS' if code==0 else f'FAILED / CANCELLED: exit {code}; inspect manifest and log')
+        outcome='SUCCESS' if code==0 and status==C.QProcess.ExitStatus.NormalExit else ('CANCELLED' if code==130 else f'FAILED: exit {code}; {status.name}')
+        self.log.appendPlainText(outcome);self.task_status.setText(outcome)
         self.refresh_queue();self.history()
     def cancel(self):
         if not self.busy():return
         if self.active_batch_run:
             request_cancel(self.active_batch_run);self.log.appendPlainText('Cancellation requested; preserving checkpoints')
         if self.active_control:atomic_json(self.active_control,{'cancel':True})
+    def pause_action(self):
+        if not self.busy() or not self.active_control:
+            self.log.appendPlainText('Pause is available for active cached/research actions; batches support safe Cancel/Resume.');return
+        try:
+            flags=json.loads(Path(self.active_control).read_text(encoding='utf-8'));flags['pause']=not flags.get('pause',False)
+            atomic_json(self.active_control,flags);self.log.appendPlainText('Pause requested' if flags['pause'] else 'Resume requested')
+        except Exception as exc:self.error(exc)
     def resume_batch(self):
         if self.busy():self.error('A task is already running');return
         path,_=W.QFileDialog.getOpenFileName(self,'Select batch_manifest.json',self.out.text(),'JSON (*.json)')
@@ -356,12 +516,13 @@ class Studio(W.QMainWindow):
     def cached_action(self,action,config):
         if self.process and self.process.state()!=C.QProcess.ProcessState.NotRunning:
             raise ValueError('A task is already running')
-        if not self.viewer.cache:self.error('Open an archived features.h5 first');return
+        if action in ('quantitative','graph','patches','eds') and not self.viewer.cache:self.error('Open an archived features.h5 first');return
         import uuid
         self.control=Path(self.out.text())/'.job_control'/('qt_action_'+uuid.uuid4().hex+'.json')
         atomic_json(self.control,{'cancel':False});self.batch_run=None
-        self.launch(['-u','-m','ebsd_autoplot.studio_actions',action,'--cache',str(self.viewer.cache),
-                     '--output-root',self.out.text(),'--config',json.dumps(config),'--control-file',str(self.control)],control=self.control)
+        args=['-u','-m','ebsd_autoplot.studio_actions',action,'--output-root',self.out.text(),'--config',json.dumps(config),'--control-file',str(self.control)]
+        if self.viewer.cache:args+=['--cache',str(self.viewer.cache)]
+        self.launch(args,control=self.control)
     def quantitative(self):
         try:
             formats=[k for k,v in self.formats.items() if v.isChecked()]
@@ -434,6 +595,7 @@ class Studio(W.QMainWindow):
         if self.process and self.process.state()!=C.QProcess.ProcessState.NotRunning:
             self.cancel();event.ignore();self.log.appendPlainText('Wait for safe task cancellation, then close');return
         self.save_settings();event.accept()
+        self.viewer.generation+=1;self.viewer.tile_timer.stop()
 
 
 def main():

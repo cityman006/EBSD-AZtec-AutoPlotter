@@ -30,3 +30,51 @@ def test_cached_action_owns_cancel_control(tmp_path):
     assert captured['control']==win.control
     assert captured['args'][captured['args'].index('--cache')+1]=='features.h5'
     win.viewer.cache=None;win.close();app.processEvents()
+
+
+def test_lazy_qt_tiles_aspect_switch_and_stale_result(tmp_path):
+    import json
+    import time
+    import h5py
+    import numpy as np
+    from PySide6 import QtCore as C
+    app=W.QApplication.instance() or W.QApplication([])
+    path=tmp_path/'features.h5'
+    h,w=90,130
+    raw=np.zeros((7,h,w),np.float32);raw[4]=7;raw[5]=2;raw[6]=173
+    with h5py.File(path,'w') as f:
+        f['features']=raw;f['indexed']=np.ones((h,w),np.uint8);f['kam_valid']=np.ones((h,w),np.uint8)
+        f.attrs['metadata_json']=json.dumps({'x_step_um':2,'y_step_um':3,
+            'phase_specs':{'7':{'rgb':[12,34,56]}}})
+    view=MapView();view.resize(600,400);view.show();view.load_cache(path,'BC')
+    def wait_tiles():
+        limit=time.monotonic()+10
+        while not view.tile_items and time.monotonic()<limit:
+            app.processEvents();time.sleep(.01)
+        assert view.tile_items
+    wait_tiles()
+    assert view.transform().m22()/view.transform().m11()==pytest.approx(1.5)
+    assert view.width_px==w and view.height_px==h
+    assert all(max(i.pixmap().width(),i.pixmap().height())<=512 for i in view.tile_items)
+    assert view.tile_items[0].pixmap().toImage().pixelColor(3,3).red()==173
+    stale=view.generation
+    view.load_cache(path,'Phase');wait_tiles()
+    assert view.tile_items[0].pixmap().toImage().pixelColor(3,3).getRgb()[:3]==(12,34,56)
+    current=view.tile_items[:]
+    view.accept_tiles({'generation':stale,'tiles':[]})
+    assert view.tile_items==current
+    view.generation+=1;view.tile_timer.stop();view.close()
+    assert C.QThreadPool.globalInstance().waitForDone(10000)
+    app.processEvents()
+
+
+def test_crashed_zero_exit_is_not_success_and_ddpm_steps_match_backend(tmp_path):
+    from PySide6 import QtCore as C
+    app=W.QApplication.instance() or W.QApplication([])
+    win=Studio();win.preferences=tmp_path/'settings.json'
+    win.read_log=lambda:None;win.refresh_queue=lambda:None;win.history=lambda:None
+    win.finished(0,C.QProcess.ExitStatus.CrashExit)
+    assert win.task_status.text().startswith('FAILED')
+    assert 'SUCCESS' not in win.log.toPlainText()
+    assert win.diff_steps.minimum()==4
+    win.close();app.processEvents()

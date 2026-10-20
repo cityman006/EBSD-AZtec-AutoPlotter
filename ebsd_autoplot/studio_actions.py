@@ -5,6 +5,7 @@ from datetime import datetime
 import json
 from pathlib import Path
 import uuid
+import time
 from .storage import atomic_json,cancellation,Cancelled
 
 
@@ -16,7 +17,14 @@ def run_action(action,cache,output_root,*,config=None,control_file=None):
               'config':json.loads(json.dumps(config)),'scientific_status':'research; independent validation pending'}
     def cancelled():
         if not control_file:return False
-        try:return bool(json.loads(Path(control_file).read_text(encoding='utf-8')).get('cancel'))
+        try:
+            flags=json.loads(Path(control_file).read_text(encoding='utf-8'))
+            paused=False
+            while flags.get('pause') and not flags.get('cancel'):
+                if not paused:print('PAUSED: process state retained; complete checkpoints remain available',flush=True);paused=True
+                time.sleep(.2);flags=json.loads(Path(control_file).read_text(encoding='utf-8'))
+            if paused:print('RESUMED',flush=True)
+            return bool(flags.get('cancel'))
         except (OSError,ValueError):return True
     atomic_json(run/'studio_manifest.json',manifest)
     try:
@@ -68,7 +76,15 @@ def run_action(action,cache,output_root,*,config=None,control_file=None):
                 save_eds(result,run/'results',phase_map=phase,indexed=indexed,
                          phase_names={i:s['name'] for i,s in source.phase_specs.items()})
                 print('EDS: '+result.metadata.get('status','available' if result.available else 'unavailable'),flush=True)
-            else:raise ValueError('Unknown cached action: '+action)
+            elif action=='dataset-split':
+                from .ml_dataset import PatchDataset,grouped_split
+                dataset=PatchDataset(config['index_files']);splits=grouped_split(dataset.entries,seed=config.get('seed',0))
+                atomic_json(run/'group_split.json',{'schema_version':1,'source_index_files':config['index_files'],
+                    'splits':splits,'independent_group_counts':{k:len({dataset.entries[i]['split_group'] for i in indexes}) for k,indexes in splits.items()},
+                    'rule':'Disjoint specimen/source groups; adjacent patches are never independently random-split'})
+            else:
+                from .research_actions import run_research_action
+                manifest['result']=run_research_action(action,cache,run,config)
         manifest['status']='success'
     except BaseException as exc:
         manifest.update(status='cancelled' if isinstance(exc,Cancelled) else 'failed',error=f'{type(exc).__name__}: {exc}')

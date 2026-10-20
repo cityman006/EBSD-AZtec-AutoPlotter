@@ -172,6 +172,8 @@ def test_graph_anisotropic_shared_lengths_and_symmetry(tmp_path):
     assert report["qc"]["nodes"] == 3
     assert report["qc"]["undirected_edges"] == 3
     graph = np.load(out / "graph.npz", allow_pickle=False)
+    assert json.loads(str(graph['metadata_json'].item()))['phase_schema']==report['phase_schema']
+    assert report['phase_schema']['1']['space_group']==194
     assert graph["node_ids"].tolist() == [10, 20, 30]
     pairs = {tuple(e): a for e, a in zip(graph["edge_index"].T.tolist(), graph["edge_attr"])}
     assert pairs[(0, 1)][0] == 3.0 and pairs[(0, 2)][0] == 3.0

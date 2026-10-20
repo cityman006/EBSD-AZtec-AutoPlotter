@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.0.0.dev1 — M4 research integration
+
+- GUI Dataset/GNN/Mechanics/Diffusion workflows, isolated workers, label gates,
+  pause/cancel state and durable transaction-verified weight checkpoints.
+- Explicit mechanics units/frame/source pairing; grouped CPU GNN and ridge,
+  training-only scalers, held-out metrics, schema-checked masked inference.
+- Learned numerical conditional DDPM, real HCP/BCC phase-aware symmetry
+  representatives and requested/actual phase-fraction QC; research-only limits.
+- Lazy multilevel disk tiles, bounded hyperslabs and original physical aspect.
+- Corrected weighted neighbour means for sub-micrometre total boundary weights;
+  added regression and crash-status checks. No scientific certification claimed.
+- Chinese operational guide; versioned provenance and summary comparability QC.
+
 ## V4 research development M3
 
 - Lossless original-grid HDF5 patches, deterministic uneven grids, pixel/µm
